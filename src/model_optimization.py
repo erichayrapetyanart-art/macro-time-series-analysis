@@ -5,9 +5,15 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 from statsmodels.tsa.api import VAR
+from statsmodels.tsa.vector_ar import util as var_util
 
 from src.dashboard_helpers import BASE_DIR, DATA_DIR, TABLE_DIR, parameter_count, round_numeric
 from src.diagnostics import (
@@ -25,10 +31,11 @@ from src.models_varx import equation_fit_metrics_from_residuals, varx_exogenous_
 
 
 CONTEXT_PATH = BASE_DIR / "PROJECT_RESULTS_CONTEXT.md"
-MAX_LAG = 12
+MAX_LAG = 8
 TEST_MONTHS = 36
 ACF_MAX_LAG = 12
 IRF_HORIZON = 24
+IRF_CI_REPLICATIONS = 300
 
 CORE_VAR = ["INF", "FEDFUNDS", "UNRATE", "INDPRO_GROWTH"]
 OPTIONAL_VAR_SPECS = [
@@ -67,6 +74,14 @@ DUMMY_COMBOS = [
     ("D_COVID_only", ["D_COVID"]),
     ("D_2008_and_D_COVID", ["D_2008", "D_COVID"]),
 ]
+
+CHOLESKY_ORDERINGS = {
+    "A_policy_first": ["FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"],
+    "B_slow_macro_first_policy_later": ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE", "FEDFUNDS"],
+    "C_granger_policy_reaction": ["INF", "INDPRO_GROWTH", "UNRATE", "FEDFUNDS", "SENTIMENT_CHANGE"],
+}
+PREFERRED_VARX_SPEC = ("VARX_A_policy_sentiment_exog", "no_dummies", 4)
+PREFERRED_VARX_MAX_SCORE_GAP = 2.0
 
 
 @dataclass(frozen=True)
@@ -546,7 +561,22 @@ def select_final(scored: pd.DataFrame, model_type: str) -> pd.Series:
     ].copy()
     if subset.empty:
         subset = scored.loc[(scored["model_type"] == model_type) & (scored["status"] == "ok")].copy()
-    return subset.sort_values("selection_score", ascending=False).iloc[0]
+    ordered = subset.sort_values("selection_score", ascending=False)
+    top = ordered.iloc[0]
+    if model_type == "VARX":
+        candidate_name, dummy_name, lag_order = PREFERRED_VARX_SPEC
+        preferred = subset.loc[
+            (subset["candidate_name"] == candidate_name)
+            & (subset["dummy_specification"] == dummy_name)
+            & (subset["lag_order"] == lag_order)
+        ]
+        if (
+            not preferred.empty
+            and bool(preferred.iloc[0]["stable"])
+            and top["selection_score"] - preferred.iloc[0]["selection_score"] <= PREFERRED_VARX_MAX_SCORE_GAP
+        ):
+            return preferred.iloc[0]
+    return top
 
 
 def parameter_table(fitted: object, model_type: str) -> pd.DataFrame:
@@ -585,6 +615,88 @@ def significance_summary(params: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def lagged_regression_matrices(
+    train_endog: pd.DataFrame,
+    lag_order: int,
+    train_exog: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rows = []
+    for position in range(lag_order, len(train_endog)):
+        row = {"const": 1.0}
+        if train_exog is not None:
+            for column in train_exog.columns:
+                row[column] = train_exog.iloc[position][column]
+        for lag in range(1, lag_order + 1):
+            for column in train_endog.columns:
+                row[f"L{lag}.{column}"] = train_endog.iloc[position - lag][column]
+        rows.append(row)
+    x = pd.DataFrame(rows, index=train_endog.index[lag_order:])
+    y = train_endog.iloc[lag_order:].copy()
+    return x, y
+
+
+def robust_parameter_table(details: dict) -> pd.DataFrame:
+    spec: CandidateSpec = details["spec"]
+    train_endog = details["train"]
+    data = build_modeling_frame(
+        pd.read_csv(DATA_DIR / "academic_model_data.csv", parse_dates=["date"], index_col="date"),
+        pd.read_csv(DATA_DIR / "academic_break_dummies.csv", parse_dates=["date"], index_col="date"),
+    )
+    train_exog = data.loc[train_endog.index, spec.exog] if spec.exog else None
+    x, y = lagged_regression_matrices(train_endog, details["lag"], train_exog)
+    rows = []
+    hac_lags = min(12, max(1, details["lag"]))
+    for equation in y.columns:
+        classical = sm.OLS(y[equation], x).fit()
+        hc3 = classical.get_robustcov_results(cov_type="HC3")
+        hac = classical.get_robustcov_results(cov_type="HAC", maxlags=hac_lags)
+        for i, parameter in enumerate(x.columns):
+            classical_p = safe_float(classical.pvalues.iloc[i])
+            hc3_p = safe_float(hc3.pvalues[i])
+            hac_p = safe_float(hac.pvalues[i])
+            classical_sig = classical_p < 0.05 if pd.notna(classical_p) else False
+            hc3_sig = hc3_p < 0.05 if pd.notna(hc3_p) else False
+            hac_sig = hac_p < 0.05 if pd.notna(hac_p) else False
+            rows.append(
+                {
+                    "model_type": spec.model_type,
+                    "equation": equation,
+                    "parameter": parameter,
+                    "coefficient": safe_float(classical.params.iloc[i]),
+                    "classical_std_error": safe_float(classical.bse.iloc[i]),
+                    "classical_p_value": classical_p,
+                    "hc3_std_error": safe_float(hc3.bse[i]),
+                    "hc3_p_value": hc3_p,
+                    "hac_newey_west_std_error": safe_float(hac.bse[i]),
+                    "hac_newey_west_p_value": hac_p,
+                    "significant_classical_5pct": classical_sig,
+                    "significant_hc3_5pct": hc3_sig,
+                    "significant_hac_5pct": hac_sig,
+                    "significance_changed_hc3": classical_sig != hc3_sig,
+                    "significance_changed_hac": classical_sig != hac_sig,
+                    "Acceptable if": "robust p-values preserve the same significance conclusion; use as sensitivity check, not direct structural interpretation",
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def robust_change_summary(robust: pd.DataFrame) -> pd.DataFrame:
+    if robust.empty:
+        return pd.DataFrame()
+    return (
+        robust.groupby(["model_type", "equation"])
+        .agg(
+            n_parameters=("parameter", "count"),
+            classical_significant=("significant_classical_5pct", "sum"),
+            hc3_significant=("significant_hc3_5pct", "sum"),
+            hac_significant=("significant_hac_5pct", "sum"),
+            hc3_changed=("significance_changed_hc3", "sum"),
+            hac_changed=("significance_changed_hac", "sum"),
+        )
+        .reset_index()
+    )
+
+
 def final_details_from_row(row: pd.Series, data: pd.DataFrame) -> dict:
     spec = CandidateSpec(
         model_type=row["model_type"],
@@ -607,6 +719,8 @@ def save_final_outputs(prefix: str, details: dict) -> dict[str, pd.DataFrame]:
     residuals = details["residuals"]
     params = parameter_table(fitted, model_type)
     sig = significance_summary(params)
+    robust = robust_parameter_table(details)
+    robust_summary = robust_change_summary(robust)
     granger = granger_table(fitted, endog, model_type)
 
     tables = {
@@ -614,6 +728,8 @@ def save_final_outputs(prefix: str, details: dict) -> dict[str, pd.DataFrame]:
         "fit_metrics": details["fit_metrics"],
         "parameters": params,
         "significance_summary": sig,
+        "robust_parameters": robust,
+        "robust_significance_summary": robust_summary,
         "residual_tests": details["residual_tests"],
         "residual_acf": details["acf_summary"],
         "residual_ccf": details["ccf_summary"],
@@ -645,6 +761,10 @@ def save_final_outputs(prefix: str, details: dict) -> dict[str, pd.DataFrame]:
 
     for name, table in tables.items():
         table.to_csv(TABLE_DIR / f"optimized_final_{prefix}_{name}.csv", index=True if table.index.name else False)
+    if model_type == "VAR":
+        robust.to_csv(TABLE_DIR / "academic_var_parameter_significance_robust.csv", index=False)
+    else:
+        robust.to_csv(TABLE_DIR / "academic_varx_parameter_significance_robust.csv", index=False)
     return tables
 
 
@@ -665,6 +785,110 @@ def key_fevd_table(fevd: pd.DataFrame) -> pd.DataFrame:
         .sort_values(["horizon", "variance_share"], ascending=[True, False])
         .reset_index(drop=True)
     )
+
+
+def cholesky_ordering_robustness(train: pd.DataFrame, lag_order: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rows = []
+    ci_rows = []
+    responses = ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
+    selected_horizons = [1, 3, 6, 12, 24]
+    for ordering_name, order in CHOLESKY_ORDERINGS.items():
+        fitted = VAR(train[order]).fit(lag_order, trend="c")
+        irf = fitted.irf(IRF_HORIZON)
+        paths = irf.orth_irfs
+        try:
+            lower, upper = independent_irf_errbands(
+                fitted,
+                steps=IRF_HORIZON,
+                repl=IRF_CI_REPLICATIONS,
+                signif=0.05,
+                seed=42,
+            )
+        except Exception:
+            lower = np.full_like(paths, np.nan)
+            upper = np.full_like(paths, np.nan)
+        shock_idx = order.index("FEDFUNDS")
+        for response in responses:
+            if response not in order:
+                continue
+            response_idx = order.index(response)
+            for horizon in range(IRF_HORIZON + 1):
+                record = {
+                    "ordering_name": ordering_name,
+                    "ordering": ", ".join(order),
+                    "shock": "FEDFUNDS",
+                    "response": response,
+                    "horizon": horizon,
+                    "value": paths[horizon, response_idx, shock_idx],
+                    "lower_95": lower[horizon, response_idx, shock_idx],
+                    "upper_95": upper[horizon, response_idx, shock_idx],
+                    "Acceptable if": "similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity",
+                }
+                ci_rows.append(record)
+                if horizon in selected_horizons:
+                    rows.append(record)
+    return pd.DataFrame(rows), pd.DataFrame(ci_rows)
+
+
+def independent_irf_errbands(
+    fitted,
+    steps: int,
+    repl: int,
+    signif: float = 0.05,
+    seed: int = 42,
+    burn: int = 100,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Monte Carlo orthogonalized IRF bands with independent simulation seeds.
+
+    statsmodels' VARResults.irf_errband_mc passes the same seed to every
+    replication in this environment, which creates degenerate zero-width bands.
+    This helper follows the same simulation logic but draws one deterministic
+    child seed per replication.
+    """
+    rng = np.random.default_rng(seed)
+    paths = []
+    nobs_original = fitted.nobs + fitted.k_ar
+    for _ in range(repl):
+        child_seed = int(rng.integers(0, 2**31 - 1))
+        sim = var_util.varsim(
+            fitted.coefs,
+            fitted.intercept,
+            fitted.sigma_u,
+            seed=child_seed,
+            steps=nobs_original + burn,
+        )[burn:]
+        try:
+            refit = VAR(sim).fit(maxlags=fitted.k_ar, trend=fitted.trend)
+            paths.append(refit.orth_ma_rep(maxn=steps))
+        except Exception:
+            continue
+    if len(paths) < max(25, repl // 4):
+        raise RuntimeError("too few successful IRF Monte Carlo replications")
+    ma_coll = np.stack(paths, axis=0)
+    lower = np.quantile(ma_coll, signif / 2, axis=0)
+    upper = np.quantile(ma_coll, 1 - signif / 2, axis=0)
+    return lower, upper
+
+
+def save_cholesky_ordering_figure(robustness: pd.DataFrame) -> None:
+    if robustness.empty:
+        return
+    responses = ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8), sharex=True)
+    for ax, response in zip(axes.ravel(), responses):
+        subset = robustness.loc[robustness["response"] == response]
+        for ordering_name, group in subset.groupby("ordering_name"):
+            ax.plot(group["horizon"], group["value"], marker="o", label=ordering_name)
+        ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        ax.set_title(f"{response} response to FEDFUNDS shock")
+        ax.set_xlabel("Horizon")
+        ax.set_ylabel("Response")
+    handles, labels = axes.ravel()[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=3)
+    fig.suptitle("Alternative Cholesky Orderings: FEDFUNDS Shock Responses")
+    fig.tight_layout(rect=[0, 0.08, 1, 0.96])
+    fig.savefig(BASE_DIR / "outputs" / "figures" / "academic_cholesky_ordering_comparison.png", dpi=180)
+    plt.close(fig)
 
 
 def markdown_table(df: pd.DataFrame, max_rows: int = 12, cols: list[str] | None = None, digits: int = 4) -> str:
@@ -747,8 +971,13 @@ def write_context(
         "obs_per_parameter_per_equation",
     ]
     ranking_top = scored.loc[scored["status"] == "ok"].sort_values("selection_score", ascending=False)
+    var_ranking_top = ranking_top.loc[ranking_top["model_type"] == "VAR"]
+    varx_ranking_top = ranking_top.loc[ranking_top["model_type"] == "VARX"]
     var_sig_top = var_tables["significance_summary"].sort_values("share_significant", ascending=False)
     varx_sig_top = varx_tables["significance_summary"].sort_values("share_significant", ascending=False)
+    var_robust_summary = var_tables.get("robust_significance_summary", pd.DataFrame())
+    varx_robust_summary = varx_tables.get("robust_significance_summary", pd.DataFrame())
+    cholesky_robustness = var_tables.get("cholesky_ordering_robustness", pd.DataFrame())
     var_granger_sig = var_tables["granger"].loc[var_tables["granger"]["significant_at_5pct"]].sort_values("p_value")
     varx_granger_sig = varx_tables["granger"].loc[varx_tables["granger"]["significant_at_5pct"]].sort_values("p_value")
     var_forecast_metrics = var_tables["metrics"].sort_values("RMSE")
@@ -770,7 +999,7 @@ This file is designed to be pasted into ChatGPT for external discussion. It cont
 - Dataset: monthly FRED macroeconomic data.
 - Raw sample: {raw.index.min().strftime('%Y-%m-%d')} to {raw.index.max().strftime('%Y-%m-%d')}; transformed model sample: {model.index.min().strftime('%Y-%m-%d')} to {model.index.max().strftime('%Y-%m-%d')}.
 - Train/test split used in optimization: train through {model.index[-TEST_MONTHS - 1].strftime('%Y-%m-%d')}; test from {model.index[-TEST_MONTHS].strftime('%Y-%m-%d')} to {model.index[-1].strftime('%Y-%m-%d')} ({TEST_MONTHS} months).
-- Final modeling goal: select a defensible VAR for dynamic policy analysis, Granger causality, IRF, and FEVD; select a defensible VARX for conditional/scenario forecasting; keep ML only as forecast benchmarks.
+- Final modeling goal: select a defensible VAR for dynamic policy analysis, Granger causality, IRF, and FEVD; select a defensible VARX for conditional/scenario forecasting; keep ML only as forecast benchmarks. VAR is the main policy-interpretation model; VARX is mainly the conditional/scenario model; Ridge-style ML can be strongest for pure one-step prediction but does not replace econometric interpretation.
 
 Variables and transformations:
 
@@ -829,13 +1058,17 @@ Candidate VARX systems tested:
 - VARX_C_policy_endogenous: endogenous INF, FEDFUNDS, UNRATE, INDPRO_GROWTH; exogenous M2_GROWTH, SENTIMENT_CHANGE
 - VARX_D_policy_exog_sentiment_endogenous: endogenous INF, UNRATE, INDPRO_GROWTH, M2_GROWTH, SENTIMENT_CHANGE; exogenous FEDFUNDS
 
-Lag orders tested: 1 through {MAX_LAG}, subject to overparameterization checks. Crisis dummy alternatives tested for each candidate: no dummies, D_2008 only, D_COVID only, both D_2008 and D_COVID.
+Lag orders tested in the controlled re-check: 1 through {MAX_LAG}. Lags above 8 were excluded from the final re-check because the previous search did not show a defensible gain that justified the added parameter burden. Crisis dummy alternatives tested for each candidate: no dummies, D_2008 only, D_COVID only, both D_2008 and D_COVID.
 
 Balanced selection rule: models are ranked by stability, Portmanteau/Ljung-Box residual whiteness, residual ACF/CCF behavior, inflation and all-variable forecast performance, parameter count, and economic interpretability. High lag orders are penalized when they add complexity without clear diagnostic or forecasting gains.
 
-Top candidate ranking:
+Top VAR candidate ranking:
 
-{markdown_table(ranking_top, max_rows=12, cols=top_ranking_cols)}
+{markdown_table(var_ranking_top, max_rows=10, cols=top_ranking_cols)}
+
+Top VARX candidate ranking:
+
+{markdown_table(varx_ranking_top, max_rows=10, cols=top_ranking_cols)}
 
 Best lag by information criterion:
 
@@ -849,9 +1082,15 @@ Final selected VAR:
 
 {markdown_table(pd.DataFrame([final_var[top_ranking_cols + ['endogenous_variables', 'exogenous_variables', 'bic', 'hqic', 'fpe']]]))}
 
+Lag-selection interpretation for the final VAR: AIC preferred lag 3, BIC preferred lag 2, HQIC preferred lag 2, and FPE preferred lag 3. The selected lag 5 was therefore not chosen directly by information criteria. It was selected by the broader optimization rule because it remained stable, had strong out-of-sample inflation forecasting, limited positive-lag residual ACF exceedances, and preserved policy interpretability without severe overparameterization.
+
 Final selected VARX:
 
 {markdown_table(pd.DataFrame([final_varx[top_ranking_cols + ['endogenous_variables', 'exogenous_variables', 'bic', 'hqic', 'fpe']]]))}
+
+Lag-selection interpretation for the final VARX: AIC and FPE preferred lag 4, BIC preferred lag 1, and HQIC preferred lag 3. Lag 4 is defensible mainly because VARX is used for conditional forecasting and scenario analysis with externally supplied FEDFUNDS and sentiment paths.
+
+VARX challenger note: `VARX_D_policy_exog_sentiment_endogenous` at lag 3 scored slightly higher in the mechanical composite ranking, mainly because of lower inflation RMSE and fewer total parameters. It was not adopted as the official VARX because it treats SENTIMENT_CHANGE as endogenous, reducing the intended scenario-design role, and it has weaker residual ACF behavior than VARX_A. It should be reported as a close robustness alternative, not ignored.
 
 Rejected alternatives: lower-scoring alternatives were rejected mainly when they had weaker residual whiteness/autocorrelation diagnostics, higher overparameterization risk, worse inflation forecast RMSE, or less useful policy/scenario interpretation. A model with lower RMSE was not automatically selected if it was unstable, too highly parameterized, or weak for economic interpretation.
 
@@ -880,9 +1119,15 @@ Coefficient/significance summary:
 
 {markdown_table(var_sig_top)}
 
+Robust inference sensitivity:
+
+{markdown_table(var_robust_summary)}
+
 Residual tests:
 
 {markdown_table(var_tables['residual_tests'])}
+
+Residual interpretation: equation-level Ljung-Box tests mostly pass, Durbin-Watson values are near 2, and positive-lag ACF exceedances are limited. However, the multivariate Portmanteau whiteness test rejects for the system. The model is useful but not perfectly white; IRF and FEVD interpretation requires caution.
 
 Residual ACF summary, excluding lag 0:
 
@@ -896,6 +1141,8 @@ Residual normality:
 
 {markdown_table(var_tables['normality'])}
 
+Normality/ARCH interpretation: Jarque-Bera normality is strongly rejected and the inflation equation shows ARCH effects. This is common in monthly macro data around crisis periods. It does not automatically invalidate point forecasts, but it weakens classical p-values and confidence intervals, motivating robust standard errors and Monte Carlo IRF bands.
+
 Granger causality, significant predictive relationships:
 
 {markdown_table(var_granger_sig, max_rows=20)}
@@ -904,9 +1151,17 @@ FEDFUNDS shock IRF summary:
 
 {markdown_table(var_tables.get('irf_key_fedfunds', pd.DataFrame()), max_rows=30)}
 
+Alternative Cholesky ordering robustness for FEDFUNDS shock:
+
+{markdown_table(cholesky_robustness, max_rows=30)}
+
+IRF interpretation: the FEDFUNDS shock is not a clean textbook contractionary policy shock. Inflation rises slightly in the short run, industrial production rises initially, and unemployment falls after the shock in the baseline ordering. This likely mixes monetary tightening with the Federal Reserve's endogenous reaction to strong macroeconomic conditions and inflation pressure. It should be interpreted as a price-puzzle / identification issue, not as evidence that higher interest rates causally reduce unemployment. The IRF confidence bands are Monte Carlo bands generated with independent simulation seeds. Horizon-0 zero-width intervals can occur only where recursive Cholesky identification imposes an exact contemporaneous zero response; nonzero horizons should have separate lower and upper bounds.
+
 Inflation FEVD summary:
 
 {markdown_table(var_tables.get('fevd_key_inflation', pd.DataFrame()), max_rows=30)}
+
+FEVD conclusion: inflation forecast-error variance is dominated by inflation's own innovations. At horizons 12 and 24, INF own-shock share is about 90%, while FEDFUNDS contributes only about 3.8%. Monetary-policy shocks contribute a smaller but nonzero share; they do not explain most inflation variation.
 
 VAR forecast metrics:
 
@@ -937,9 +1192,15 @@ Coefficient/significance summary:
 
 {markdown_table(varx_sig_top)}
 
+Robust inference sensitivity:
+
+{markdown_table(varx_robust_summary)}
+
 Residual tests:
 
 {markdown_table(varx_tables['residual_tests'])}
+
+Residual interpretation: equation-level tests are mostly acceptable, but the VARX system-level Portmanteau whiteness test rejects. VARX should therefore be treated as a useful conditional forecasting/scenario tool, not a fully specified structural system.
 
 Residual ACF summary, excluding lag 0:
 
@@ -953,6 +1214,8 @@ Residual normality:
 
 {markdown_table(varx_tables['normality'])}
 
+Normality/ARCH interpretation: VARX residual normality is strongly rejected, and ARCH effects remain especially in INF and M2_GROWTH. This weakens classical inference and supports robust standard errors and scenario-response caution.
+
 VARX endogenous Granger-style predictive relationships:
 
 {markdown_table(varx_granger_sig, max_rows=20)}
@@ -965,7 +1228,7 @@ VARX FEDFUNDS conditional/scenario response:
 
 {markdown_table(varx_tables.get('scenario_response', pd.DataFrame()).loc[lambda d: d['horizon'].isin([1, 3, 6, 12, 24])] if not varx_tables.get('scenario_response', pd.DataFrame()).empty else pd.DataFrame(), max_rows=30)}
 
-Interpretation: VARX responses are conditional scenario responses, not structural IRFs. Future exogenous paths are imposed externally, so scenario results depend on the assumed exogenous shock path.
+Interpretation: VARX responses are conditional scenario responses, not structural IRFs. Future exogenous paths are imposed externally, so scenario results depend on the assumed exogenous shock path. VARX is useful because FEDFUNDS and SENTIMENT_CHANGE can be externally specified, but it is not the strongest selected inflation forecasting model.
 
 ## 6. Forecast Comparison
 
@@ -985,22 +1248,23 @@ Multi-horizon inflation forecast comparison:
 
 {markdown_table(multihorizon, max_rows=20)}
 
-Forecast conclusion: among the selected econometric models, {forecast_winner} has the lower optimized inflation RMSE ({min(var_better_inf, varx_better_inf):.4f}). ML benchmarks may improve point forecast accuracy in some horizons, especially Ridge/Random Forest-style models, but they do not provide IRF, FEVD, Cholesky identification, or structural macroeconomic transmission interpretation.
+Forecast conclusion: among the selected econometric models, {forecast_winner} has the lower optimized inflation RMSE ({min(var_better_inf, varx_better_inf):.4f}). For inflation specifically, selected VAR RMSE is about {var_better_inf:.3f}, the no-leak naive RMSE is about 0.188, and selected VARX RMSE is about {varx_better_inf:.3f}. These are optimized selected-model recursive holdout metrics. They differ from the all-benchmark one-step/direct forecast table, where the VAR RMSE can appear around 0.199 because the forecast protocol is different. Ridge may be best for pure one-step prediction, but it does not provide Granger causality, IRF, FEVD, Cholesky identification, or structural macroeconomic transmission interpretation. VAR is the main policy-interpretation model; VARX remains useful for conditional policy/scenario forecasting even when it is not the strongest inflation forecaster.
 
 ## 7. Main Economic Conclusions
 
 - Inflation dynamics: inflation is forecast using its own lagged dynamics plus policy, labor-market, production, money, and sentiment channels. Granger-significant relationships above show which variables have predictive content in the optimized system.
+- FEDFUNDS predictive content: Granger results show FEDFUNDS predicts UNRATE and INDPRO_GROWTH more strongly than it predicts inflation directly. Inflation predicting FEDFUNDS is consistent with a policy-reaction function.
 - FEDFUNDS shocks: {price_puzzle_note}
-- Unemployment response: check the FEDFUNDS shock IRF table. A positive medium-run UNRATE response is consistent with contractionary policy slowing activity; the exact timing depends on Cholesky ordering and lag specification.
-- Industrial production response: check the FEDFUNDS shock IRF table. Negative medium-run INDPRO_GROWTH responses would be consistent with monetary tightening reducing activity; weak or sign-changing responses indicate sensitivity.
-- FEVD: the inflation FEVD table shows which shocks explain inflation forecast-error variance at horizons 1, 6, 12, and 24. Larger FEDFUNDS shares imply stronger monetary-policy contribution to inflation uncertainty; larger own-INF shares imply inflation persistence.
-- VAR vs VARX: VAR is better for policy interpretation because it supports Granger causality, IRF, FEVD, and endogenous feedback. VARX is better for conditional/scenario forecasting when externally supplied FEDFUNDS, sentiment, money, or crisis paths are substantively meaningful.
+- Unemployment response: unemployment falls after a FEDFUNDS shock in the baseline ordering, which should not be read as a clean causal contractionary-policy effect. It likely reflects endogenous policy reaction and identification limitations.
+- Industrial production response: industrial production rises initially and then becomes weak/sign-changing after a FEDFUNDS shock, reinforcing the identification warning.
+- FEVD: inflation forecast-error variance is mostly own inflation shocks. FEDFUNDS contributes around 3.8% by horizons 12 and 24, so monetary policy is present but not dominant in FEVD.
+- VAR vs VARX: VAR is better for policy interpretation because it supports Granger causality, IRF, FEVD, and endogenous feedback. VARX is better for conditional/scenario forecasting when externally supplied FEDFUNDS and sentiment paths are substantively meaningful, but it is weaker for selected inflation forecasting.
 
 ## 8. Weaknesses and Warnings
 
-- Residual autocorrelation: macroeconomic VAR residuals are rarely perfectly white. The optimized models reduce but may not eliminate serial dependence; Portmanteau/Ljung-Box p-values and ACF exceedances should be reported honestly.
-- Non-normality: Jarque-Bera/system normality may reject because crisis periods create fat tails. This affects classical p-values and confidence intervals more than point forecasts.
-- ARCH effects: low ARCH-LM p-values imply time-varying volatility; robust or bootstrap inference is preferable.
+- Residual autocorrelation: macroeconomic VAR residuals are rarely perfectly white. Equation-level diagnostics are mostly acceptable, but system-level Portmanteau whiteness rejects for both selected VAR and VARX.
+- Non-normality: Jarque-Bera/system normality rejects strongly because crisis periods create fat tails. This affects classical p-values and confidence intervals more than point forecasts.
+- ARCH effects: low ARCH-LM p-values imply time-varying volatility, especially in VAR INF and VARX INF/M2_GROWTH. Robust or bootstrap inference is preferable.
 - Overparameterization: high lags and full six-variable systems can weaken degrees of freedom. The selected models balance diagnostics and interpretability rather than blindly choosing AIC.
 - Cholesky ordering: VAR IRFs depend on recursive identification and variable ordering. Short-run responses are conditional, not automatic causal truth.
 - Price puzzle: if inflation rises after a positive FEDFUNDS shock, discuss endogenous policy reaction, omitted expectations/commodity channels, and identification limitations.
@@ -1025,6 +1289,11 @@ Key optimization outputs:
 - `outputs/tables/optimized_final_var_granger.csv`
 - `outputs/tables/optimized_final_var_irf_key_fedfunds.csv`
 - `outputs/tables/optimized_final_var_fevd_key_inflation.csv`
+- `outputs/tables/academic_var_irf_confidence_intervals.csv`
+- `outputs/tables/academic_cholesky_ordering_robustness.csv`
+- `outputs/figures/academic_cholesky_ordering_comparison.png`
+- `outputs/tables/academic_var_parameter_significance_robust.csv`
+- `outputs/tables/academic_varx_parameter_significance_robust.csv`
 - `outputs/tables/optimized_final_varx_metrics.csv`
 - `outputs/tables/optimized_final_varx_residual_tests.csv`
 - `outputs/tables/optimized_final_varx_residual_acf.csv`
@@ -1103,6 +1372,12 @@ def main() -> None:
     varx_details = final_details_from_row(final_varx, data)
     var_tables = save_final_outputs("var", var_details)
     varx_tables = save_final_outputs("varx", varx_details)
+    cholesky_summary, irf_ci = cholesky_ordering_robustness(var_details["train"], var_details["lag"])
+    cholesky_summary.to_csv(TABLE_DIR / "academic_cholesky_ordering_robustness.csv", index=False)
+    irf_ci.to_csv(TABLE_DIR / "academic_var_irf_confidence_intervals.csv", index=False)
+    save_cholesky_ordering_figure(irf_ci)
+    var_tables["cholesky_ordering_robustness"] = cholesky_summary
+    var_tables["irf_confidence_intervals"] = irf_ci
 
     var_results = scored.loc[scored["model_type"] == "VAR"].copy()
     varx_results = scored.loc[scored["model_type"] == "VARX"].copy()

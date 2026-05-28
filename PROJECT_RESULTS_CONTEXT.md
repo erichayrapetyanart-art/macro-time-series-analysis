@@ -9,7 +9,7 @@ This file is designed to be pasted into ChatGPT for external discussion. It cont
 - Dataset: monthly FRED macroeconomic data.
 - Raw sample: 1995-01-01 to 2026-04-01; transformed model sample: 1995-02-01 to 2026-04-01.
 - Train/test split used in optimization: train through 2023-04-01; test from 2023-05-01 to 2026-04-01 (36 months).
-- Final modeling goal: select a defensible VAR for dynamic policy analysis, Granger causality, IRF, and FEVD; select a defensible VARX for conditional/scenario forecasting; keep ML only as forecast benchmarks.
+- Final modeling goal: select a defensible VAR for dynamic policy analysis, Granger causality, IRF, and FEVD; select a defensible VARX for conditional/scenario forecasting; keep ML only as forecast benchmarks. VAR is the main policy-interpretation model; VARX is mainly the conditional/scenario model; Ridge-style ML can be strongest for pure one-step prediction but does not replace econometric interpretation.
 
 Variables and transformations:
 
@@ -114,26 +114,39 @@ Candidate VARX systems tested:
 - VARX_C_policy_endogenous: endogenous INF, FEDFUNDS, UNRATE, INDPRO_GROWTH; exogenous M2_GROWTH, SENTIMENT_CHANGE
 - VARX_D_policy_exog_sentiment_endogenous: endogenous INF, UNRATE, INDPRO_GROWTH, M2_GROWTH, SENTIMENT_CHANGE; exogenous FEDFUNDS
 
-Lag orders tested: 1 through 12, subject to overparameterization checks. Crisis dummy alternatives tested for each candidate: no dummies, D_2008 only, D_COVID only, both D_2008 and D_COVID.
+Lag orders tested in the controlled re-check: 1 through 8. Lags above 8 were excluded from the final re-check because the previous search did not show a defensible gain that justified the added parameter burden. Crisis dummy alternatives tested for each candidate: no dummies, D_2008 only, D_COVID only, both D_2008 and D_COVID.
 
 Balanced selection rule: models are ranked by stability, Portmanteau/Ljung-Box residual whiteness, residual ACF/CCF behavior, inflation and all-variable forecast performance, parameter count, and economic interpretability. High lag orders are penalized when they add complexity without clear diagnostic or forecasting gains.
 
-Top candidate ranking:
+Top VAR candidate ranking:
 
 | model_type | candidate_name          | dummy_specification | lag_order | selection_score | stable | portmanteau_whiteness_p_value | acf_exceedance_share | inflation_RMSE | mean_relative_RMSE_vs_naive | obs_per_parameter_per_equation |
 | ---------- | ----------------------- | ------------------- | --------- | --------------- | ------ | ----------------------------- | -------------------- | -------------- | --------------------------- | ------------------------------ |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 5         | 77.8461         | True   | 0.0                           | 0.0667               | 0.176          | 0.7295                      | 12.8462                        |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 6         | 77.6738         | True   | 0.0001                        | 0.0333               | 0.1808         | 0.7662                      | 10.7419                        |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 4         | 77.3063         | True   | 0.0                           | 0.0833               | 0.177          | 0.7148                      | 15.9524                        |
-| VAR        | VAR_core4               | no_dummies          | 6         | 77.2361         | True   | 0.0                           | 0.0417               | 0.1832         | 0.7367                      | 13.32                          |
-| VAR        | VAR_core4               | no_dummies          | 4         | 77.0775         | True   | 0.0                           | 0.0833               | 0.1775         | 0.6858                      | 19.7059                        |
-| VAR        | VAR_core4               | no_dummies          | 5         | 76.9733         | True   | 0.0                           | 0.0833               | 0.1779         | 0.6941                      | 15.9048                        |
-| VAR        | VAR_core4               | no_dummies          | 3         | 76.1596         | True   | 0.0                           | 0.1042               | 0.1798         | 0.7362                      | 25.8462                        |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 3         | 76.0758         | True   | 0.0                           | 0.1                  | 0.1799         | 0.7557                      | 21.0                           |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 2         | 75.2395         | True   | 0.0                           | 0.1                  | 0.1808         | 0.8026                      | 30.6364                        |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 7         | 75.1528         | True   | 0.0                           | 0.05                 | 0.1883         | 0.7798                      | 9.2222                         |
-| VAR        | VAR_core4               | no_dummies          | 7         | 74.6872         | True   | 0.0                           | 0.0625               | 0.1893         | 0.7371                      | 11.4483                        |
-| VAR        | VAR_core4               | no_dummies          | 8         | 74.5532         | True   | 0.0                           | 0.0417               | 0.1866         | 0.8338                      | 10.0303                        |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 5         | 77.7029         | True   | 0.0                           | 0.0667               | 0.176          | 0.7295                      | 12.8462                        |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 4         | 77.1318         | True   | 0.0                           | 0.0833               | 0.177          | 0.7148                      | 15.9524                        |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 6         | 76.9629         | True   | 0.0001                        | 0.0333               | 0.1808         | 0.7662                      | 10.7419                        |
+| VAR        | VAR_core4               | no_dummies          | 4         | 76.804          | True   | 0.0                           | 0.0833               | 0.1775         | 0.6858                      | 19.7059                        |
+| VAR        | VAR_core4               | no_dummies          | 5         | 76.6477         | True   | 0.0                           | 0.0833               | 0.1779         | 0.6941                      | 15.9048                        |
+| VAR        | VAR_core4               | no_dummies          | 6         | 76.447          | True   | 0.0                           | 0.0417               | 0.1832         | 0.7367                      | 13.32                          |
+| VAR        | VAR_core4               | no_dummies          | 3         | 75.7273         | True   | 0.0                           | 0.1042               | 0.1798         | 0.7362                      | 25.8462                        |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 3         | 75.5367         | True   | 0.0                           | 0.1                  | 0.1799         | 0.7557                      | 21.0                           |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 2         | 74.5078         | True   | 0.0                           | 0.1                  | 0.1808         | 0.8026                      | 30.6364                        |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 7         | 74.1528         | True   | 0.0                           | 0.05                 | 0.1883         | 0.7798                      | 9.2222                         |
+
+Top VARX candidate ranking:
+
+| model_type | candidate_name                          | dummy_specification | lag_order | selection_score | stable | portmanteau_whiteness_p_value | acf_exceedance_share | inflation_RMSE | mean_relative_RMSE_vs_naive | obs_per_parameter_per_equation |
+| ---------- | --------------------------------------- | ------------------- | --------- | --------------- | ------ | ----------------------------- | -------------------- | -------------- | --------------------------- | ------------------------------ |
+| VARX       | VARX_D_policy_exog_sentiment_endogenous | no_dummies          | 3         | 73.4561         | True   | 0.0                           | 0.1333               | 0.186          | 0.7688                      | 19.7647                        |
+| VARX       | VARX_A_policy_sentiment_exog            | no_dummies          | 4         | 72.9358         | True   | 0.0                           | 0.0625               | 0.192          | 0.9084                      | 17.6316                        |
+| VARX       | VARX_A_policy_sentiment_exog            | D_2008_only         | 4         | 72.8892         | True   | 0.0                           | 0.0625               | 0.2083         | 0.75                        | 16.75                          |
+| VARX       | VARX_D_policy_exog_sentiment_endogenous | no_dummies          | 4         | 72.8562         | True   | 0.0                           | 0.1                  | 0.1891         | 0.8425                      | 15.2273                        |
+| VARX       | VARX_D_policy_exog_sentiment_endogenous | D_2008_only         | 3         | 72.4249         | True   | 0.0                           | 0.1333               | 0.1987         | 0.6881                      | 18.6667                        |
+| VARX       | VARX_D_policy_exog_sentiment_endogenous | D_2008_only         | 4         | 71.9891         | True   | 0.0                           | 0.1                  | 0.2083         | 0.7228                      | 14.5652                        |
+| VARX       | VARX_D_policy_exog_sentiment_endogenous | no_dummies          | 5         | 71.4502         | True   | 0.0003                        | 0.0667               | 0.1989         | 0.9329                      | 12.3704                        |
+| VARX       | VARX_D_policy_exog_sentiment_endogenous | D_2008_only         | 5         | 71.1543         | True   | 0.0003                        | 0.0667               | 0.2161         | 0.7935                      | 11.9286                        |
+| VARX       | VARX_A_policy_sentiment_exog            | no_dummies          | 5         | 70.7208         | True   | 0.0001                        | 0.0625               | 0.2039         | 1.0193                      | 14.5217                        |
+| VARX       | VARX_A_policy_sentiment_exog            | D_2008_only         | 5         | 70.6915         | True   | 0.0001                        | 0.0625               | 0.2175         | 0.8367                      | 13.9167                        |
 
 Best lag by information criterion:
 
@@ -162,28 +175,34 @@ Best lag by information criterion:
 
 Crisis dummy comparison:
 
-| model_type | dummy_specification | best_candidate               | best_lag | selection_score | aic      | bic     | portmanteau_whiteness_p_value | acf_exceedance_share | inflation_RMSE | mean_relative_RMSE_vs_naive | stable | Acceptable if                                                                                          |
-| ---------- | ------------------- | ---------------------------- | -------- | --------------- | -------- | ------- | ----------------------------- | -------------------- | -------------- | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
-| VAR        | no_dummies          | VAR_core_plus_sentiment      | 5        | 77.8461         | -6.0749  | -4.5915 | 0.0                           | 0.0667               | 0.176          | 0.7295                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VAR        | D_2008_and_D_COVID  | VAR_core_plus_M2             | 3        | 73.994          | -10.9417 | -9.9193 | 0.0                           | 0.0833               | 0.1804         | 1.2533                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VAR        | D_2008_only         | VAR_core_plus_sentiment      | 4        | 71.0957         | -6.0743  | -4.8219 |                               | 0.0833               | 0.1938         | 1.3469                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VAR        | D_COVID_only        | VAR_core_plus_M2             | 3        | 67.4888         | -10.9436 | -9.9779 | 0.0                           | 0.0833               | 0.2331         | 1.1684                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VARX       | no_dummies          | VARX_A_policy_sentiment_exog | 4        | 74.2951         | -6.781   | -5.9157 | 0.0                           | 0.0625               | 0.192          | 0.9084                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VARX       | D_2008_only         | VARX_A_policy_sentiment_exog | 4        | 74.0559         | -6.7659  | -5.8551 | 0.0                           | 0.0625               | 0.2083         | 0.75                        | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VARX       | D_2008_and_D_COVID  | VARX_A_policy_sentiment_exog | 4        | 71.8303         | -6.7959  | -5.8396 | 0.0                           | 0.0625               | 0.2176         | 0.9209                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
-| VARX       | D_COVID_only        | VARX_A_policy_sentiment_exog | 7        | 67.2835         | -6.7221  | -5.255  |                               | 0.0417               | 0.2272         | 1.4267                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| model_type | dummy_specification | best_candidate                          | best_lag | selection_score | aic      | bic     | portmanteau_whiteness_p_value | acf_exceedance_share | inflation_RMSE | mean_relative_RMSE_vs_naive | stable | Acceptable if                                                                                          |
+| ---------- | ------------------- | --------------------------------------- | -------- | --------------- | -------- | ------- | ----------------------------- | -------------------- | -------------- | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| VAR        | no_dummies          | VAR_core_plus_sentiment                 | 5        | 77.7029         | -6.0749  | -4.5915 | 0.0                           | 0.0667               | 0.176          | 0.7295                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VAR        | D_2008_and_D_COVID  | VAR_core_plus_M2                        | 3        | 73.0565         | -10.9417 | -9.9193 | 0.0                           | 0.0833               | 0.1804         | 1.2533                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VAR        | D_2008_only         | VAR_core_plus_sentiment                 | 4        | 69.6062         | -6.0743  | -4.8219 |                               | 0.0833               | 0.1938         | 1.3469                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VAR        | D_COVID_only        | VAR_core_plus_M2                        | 3        | 66.2909         | -10.9436 | -9.9779 | 0.0                           | 0.0833               | 0.2331         | 1.1684                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VARX       | no_dummies          | VARX_D_policy_exog_sentiment_endogenous | 3        | 73.4561         | -3.9382  | -2.9725 | 0.0                           | 0.1333               | 0.186          | 0.7688                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VARX       | D_2008_only         | VARX_A_policy_sentiment_exog            | 4        | 72.8892         | -6.7659  | -5.8551 | 0.0                           | 0.0625               | 0.2083         | 0.75                        | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VARX       | D_2008_and_D_COVID  | VARX_D_policy_exog_sentiment_endogenous | 3        | 69.9252         | -3.9439  | -2.8647 | 0.0                           | 0.15                 | 0.2115         | 0.7564                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
+| VARX       | D_COVID_only        | VARX_A_policy_sentiment_exog            | 7        | 65.5387         | -6.7221  | -5.255  |                               | 0.0417               | 0.2272         | 1.4267                      | True   | dummies are preferred only if they improve diagnostics, forecast performance, or crisis interpretation |
 
 Final selected VAR:
 
 | model_type | candidate_name          | dummy_specification | lag_order | selection_score | stable | portmanteau_whiteness_p_value | acf_exceedance_share | inflation_RMSE | mean_relative_RMSE_vs_naive | obs_per_parameter_per_equation | endogenous_variables                                   | exogenous_variables | bic     | hqic    | fpe    |
 | ---------- | ----------------------- | ------------------- | --------- | --------------- | ------ | ----------------------------- | -------------------- | -------------- | --------------------------- | ------------------------------ | ------------------------------------------------------ | ------------------- | ------- | ------- | ------ |
-| VAR        | VAR_core_plus_sentiment | no_dummies          | 5         | 77.8461         | True   | 0.0                           | 0.0667               | 0.176          | 0.7295                      | 12.8462                        | INF, FEDFUNDS, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | none                | -4.5915 | -5.4835 | 0.0023 |
+| VAR        | VAR_core_plus_sentiment | no_dummies          | 5         | 77.7029         | True   | 0.0                           | 0.0667               | 0.176          | 0.7295                      | 12.8462                        | INF, FEDFUNDS, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | none                | -4.5915 | -5.4835 | 0.0023 |
+
+Lag-selection interpretation for the final VAR: AIC preferred lag 3, BIC preferred lag 2, HQIC preferred lag 2, and FPE preferred lag 3. The selected lag 5 was therefore not chosen directly by information criteria. It was selected by the broader optimization rule because it remained stable, had strong out-of-sample inflation forecasting, limited positive-lag residual ACF exceedances, and preserved policy interpretability without severe overparameterization.
 
 Final selected VARX:
 
 | model_type | candidate_name               | dummy_specification | lag_order | selection_score | stable | portmanteau_whiteness_p_value | acf_exceedance_share | inflation_RMSE | mean_relative_RMSE_vs_naive | obs_per_parameter_per_equation | endogenous_variables                  | exogenous_variables        | bic     | hqic   | fpe    |
 | ---------- | ---------------------------- | ------------------- | --------- | --------------- | ------ | ----------------------------- | -------------------- | -------------- | --------------------------- | ------------------------------ | ------------------------------------- | -------------------------- | ------- | ------ | ------ |
-| VARX       | VARX_A_policy_sentiment_exog | no_dummies          | 4         | 74.2951         | True   | 0.0                           | 0.0625               | 0.192          | 0.9084                      | 17.6316                        | INF, UNRATE, INDPRO_GROWTH, M2_GROWTH | FEDFUNDS, SENTIMENT_CHANGE | -5.9157 | -6.436 | 0.0011 |
+| VARX       | VARX_A_policy_sentiment_exog | no_dummies          | 4         | 72.9358         | True   | 0.0                           | 0.0625               | 0.192          | 0.9084                      | 17.6316                        | INF, UNRATE, INDPRO_GROWTH, M2_GROWTH | FEDFUNDS, SENTIMENT_CHANGE | -5.9157 | -6.436 | 0.0011 |
+
+Lag-selection interpretation for the final VARX: AIC and FPE preferred lag 4, BIC preferred lag 1, and HQIC preferred lag 3. Lag 4 is defensible mainly because VARX is used for conditional forecasting and scenario analysis with externally supplied FEDFUNDS and sentiment paths.
+
+VARX challenger note: `VARX_D_policy_exog_sentiment_endogenous` at lag 3 scored slightly higher in the mechanical composite ranking, mainly because of lower inflation RMSE and fewer total parameters. It was not adopted as the official VARX because it treats SENTIMENT_CHANGE as endogenous, reducing the intended scenario-design role, and it has weaker residual ACF behavior than VARX_A. It should be reported as a close robustness alternative, not ignored.
 
 Rejected alternatives: lower-scoring alternatives were rejected mainly when they had weaker residual whiteness/autocorrelation diagnostics, higher overparameterization risk, worse inflation forecast RMSE, or less useful policy/scenario interpretation. A model with lower RMSE was not automatically selected if it was unstable, too highly parameterized, or weak for economic interpretation.
 
@@ -229,6 +248,16 @@ Coefficient/significance summary:
 | VAR        | UNRATE           | 26           | 6                      | 0.2308            | 0.0         |
 | VAR        | INF              | 26           | 5                      | 0.1923            | 0.0         |
 
+Robust inference sensitivity:
+
+| model_type | equation         | n_parameters | classical_significant | hc3_significant | hac_significant | hc3_changed | hac_changed |
+| ---------- | ---------------- | ------------ | --------------------- | --------------- | --------------- | ----------- | ----------- |
+| VAR        | FEDFUNDS         | 26           | 7                     | 2               | 6               | 5           | 3           |
+| VAR        | INDPRO_GROWTH    | 26           | 9                     | 2               | 7               | 7           | 6           |
+| VAR        | INF              | 26           | 5                     | 2               | 3               | 3           | 2           |
+| VAR        | SENTIMENT_CHANGE | 26           | 8                     | 7               | 9               | 1           | 1           |
+| VAR        | UNRATE           | 26           | 6                     | 0               | 2               | 6           | 6           |
+
 Residual tests:
 
 | equation         | test                                | Acceptable if                                               | durbin_watson | ljung_box_p_value | arch_lm_p_value |
@@ -238,6 +267,8 @@ Residual tests:
 | UNRATE           | Durbin-Watson / Ljung-Box / ARCH-LM | DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05 | 2.0115        | 0.7267            | 1.0             |
 | INDPRO_GROWTH    | Durbin-Watson / Ljung-Box / ARCH-LM | DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05 | 2.0479        | 0.4722            | 0.4467          |
 | SENTIMENT_CHANGE | Durbin-Watson / Ljung-Box / ARCH-LM | DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05 | 2.0176        | 0.9804            | 0.4018          |
+
+Residual interpretation: equation-level Ljung-Box tests mostly pass, Durbin-Watson values are near 2, and positive-lag ACF exceedances are limited. However, the multivariate Portmanteau whiteness test rejects for the system. The model is useful but not perfectly white; IRF and FEVD interpretation requires caution.
 
 Residual ACF summary, excluding lag 0:
 
@@ -266,8 +297,8 @@ Residual cross-correlation summary, including lag 0 for cross-equation pairs:
 | INDPRO_GROWTH    | FEDFUNDS         | -9                 | -0.1713            | 0.1713      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 | FEDFUNDS         | INDPRO_GROWTH    | 9                  | -0.1713            | 0.1713      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 | INF              | INF              | 11                 | 0.1596             | 0.1596      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
-| UNRATE           | FEDFUNDS         | -9                 | 0.1271             | 0.1271      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 | FEDFUNDS         | UNRATE           | 9                  | 0.1271             | 0.1271      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
+| UNRATE           | FEDFUNDS         | -9                 | 0.1271             | 0.1271      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 
 Residual normality:
 
@@ -278,6 +309,8 @@ Residual normality:
 | UNRATE           | Jarque-Bera | p-value > 0.05 for approximate normal residuals | 294475.3048      | 0.0                 | 9.7834   | 149.354          | True                     |
 | INDPRO_GROWTH    | Jarque-Bera | p-value > 0.05 for approximate normal residuals | 29050.4413       | 0.0                 | -4.3978  | 48.5386          | True                     |
 | SENTIMENT_CHANGE | Jarque-Bera | p-value > 0.05 for approximate normal residuals | 20.7319          | 0.0                 | -0.3387  | 4.0509           | True                     |
+
+Normality/ARCH interpretation: Jarque-Bera normality is strongly rejected and the inflation equation shows ARCH effects. This is common in monthly macro data around crisis periods. It does not automatically invalidate point forecasts, but it weakens classical p-values and confidence intervals, motivating robust standard errors and Monte Carlo IRF bands.
 
 Granger causality, significant predictive relationships:
 
@@ -323,30 +356,69 @@ FEDFUNDS shock IRF summary:
 | UNRATE           | FEDFUNDS | 12      | -0.1887 |
 | UNRATE           | FEDFUNDS | 24      | -0.1249 |
 
+Alternative Cholesky ordering robustness for FEDFUNDS shock:
+
+| ordering_name                   | ordering                                               | shock    | response         | horizon | value   | lower_95 | upper_95 | Acceptable if                                                                                                               |
+| ------------------------------- | ------------------------------------------------------ | -------- | ---------------- | ------- | ------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INF              | 1       | 0.0721  | 0.0402   | 0.1      | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INF              | 3       | -0.008  | -0.0391  | 0.0263   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INF              | 6       | 0.002   | -0.021   | 0.023    | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INF              | 12      | -0.0001 | -0.014   | 0.011    | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INF              | 24      | 0.001   | -0.0103  | 0.0087   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | UNRATE           | 1       | -0.284  | -0.3649  | -0.2033  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | UNRATE           | 3       | -0.2074 | -0.3195  | -0.0891  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | UNRATE           | 6       | -0.2097 | -0.3228  | -0.0861  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | UNRATE           | 12      | -0.2158 | -0.337   | -0.0577  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | UNRATE           | 24      | -0.1402 | -0.2535  | 0.0451   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INDPRO_GROWTH    | 1       | 0.371   | 0.2594   | 0.491    | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INDPRO_GROWTH    | 3       | -0.0785 | -0.2085  | 0.0392   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INDPRO_GROWTH    | 6       | 0.0515  | -0.0292  | 0.1125   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INDPRO_GROWTH    | 12      | 0.0066  | -0.0359  | 0.0362   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | INDPRO_GROWTH    | 24      | -0.0014 | -0.0297  | 0.0199   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | SENTIMENT_CHANGE | 1       | 0.0106  | -0.3615  | 0.403    | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | SENTIMENT_CHANGE | 3       | -0.0335 | -0.4077  | 0.38     | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | SENTIMENT_CHANGE | 6       | -0.172  | -0.4145  | 0.0478   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | SENTIMENT_CHANGE | 12      | -0.0383 | -0.1406  | 0.0373   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| A_policy_first                  | FEDFUNDS, INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | FEDFUNDS | SENTIMENT_CHANGE | 24      | -0.0414 | -0.1016  | 0.0125   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | INF              | 1       | 0.0378  | 0.0106   | 0.0662   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | INF              | 3       | -0.0078 | -0.0377  | 0.0243   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | INF              | 6       | -0.0036 | -0.0204  | 0.0141   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | INF              | 12      | -0.0001 | -0.0127  | 0.01     | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | INF              | 24      | 0.0007  | -0.0087  | 0.0086   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | UNRATE           | 1       | -0.2092 | -0.2633  | -0.1501  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | UNRATE           | 3       | -0.1379 | -0.2329  | -0.0275  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | UNRATE           | 6       | -0.1486 | -0.2558  | -0.0365  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | UNRATE           | 12      | -0.153  | -0.2651  | -0.0015  | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+| B_slow_macro_first_policy_later | INF, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE, FEDFUNDS | FEDFUNDS | UNRATE           | 24      | -0.0997 | -0.2183  | 0.0688   | similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity |
+
+IRF interpretation: the FEDFUNDS shock is not a clean textbook contractionary policy shock. Inflation rises slightly in the short run, industrial production rises initially, and unemployment falls after the shock in the baseline ordering. This likely mixes monetary tightening with the Federal Reserve's endogenous reaction to strong macroeconomic conditions and inflation pressure. It should be interpreted as a price-puzzle / identification issue, not as evidence that higher interest rates causally reduce unemployment. The IRF confidence bands are Monte Carlo bands generated with independent simulation seeds. Horizon-0 zero-width intervals can occur only where recursive Cholesky identification imposes an exact contemporaneous zero response; nonzero horizons should have separate lower and upper bounds.
+
 Inflation FEVD summary:
 
 | response | horizon | shock            | variance_share |
 | -------- | ------- | ---------------- | -------------- |
-| INF      | 1       | INF              | 1.0            |
-| INF      | 1       | FEDFUNDS         | 0.0            |
-| INF      | 1       | UNRATE           | 0.0            |
-| INF      | 1       | INDPRO_GROWTH    | 0.0            |
-| INF      | 1       | SENTIMENT_CHANGE | 0.0            |
-| INF      | 6       | INF              | 0.9105         |
-| INF      | 6       | FEDFUNDS         | 0.0387         |
-| INF      | 6       | INDPRO_GROWTH    | 0.0339         |
-| INF      | 6       | SENTIMENT_CHANGE | 0.0131         |
-| INF      | 6       | UNRATE           | 0.0038         |
-| INF      | 12      | INF              | 0.9053         |
-| INF      | 12      | FEDFUNDS         | 0.0384         |
-| INF      | 12      | INDPRO_GROWTH    | 0.036          |
-| INF      | 12      | SENTIMENT_CHANGE | 0.0154         |
-| INF      | 12      | UNRATE           | 0.0048         |
-| INF      | 24      | INF              | 0.9049         |
-| INF      | 24      | FEDFUNDS         | 0.0384         |
-| INF      | 24      | INDPRO_GROWTH    | 0.0361         |
-| INF      | 24      | SENTIMENT_CHANGE | 0.0155         |
-| INF      | 24      | UNRATE           | 0.005          |
+| inf      | 1       | INF              | 1.0            |
+| inf      | 1       | FEDFUNDS         | 0.0            |
+| inf      | 1       | UNRATE           | 0.0            |
+| inf      | 1       | INDPRO_GROWTH    | 0.0            |
+| inf      | 1       | SENTIMENT_CHANGE | 0.0            |
+| inf      | 6       | INF              | 0.9105         |
+| inf      | 6       | FEDFUNDS         | 0.0387         |
+| inf      | 6       | INDPRO_GROWTH    | 0.0339         |
+| inf      | 6       | SENTIMENT_CHANGE | 0.0131         |
+| inf      | 6       | UNRATE           | 0.0038         |
+| inf      | 12      | INF              | 0.9053         |
+| inf      | 12      | FEDFUNDS         | 0.0384         |
+| inf      | 12      | INDPRO_GROWTH    | 0.036          |
+| inf      | 12      | SENTIMENT_CHANGE | 0.0154         |
+| inf      | 12      | UNRATE           | 0.0048         |
+| inf      | 24      | INF              | 0.9049         |
+| inf      | 24      | FEDFUNDS         | 0.0384         |
+| inf      | 24      | INDPRO_GROWTH    | 0.0361         |
+| inf      | 24      | SENTIMENT_CHANGE | 0.0155         |
+| inf      | 24      | UNRATE           | 0.005          |
+
+FEVD conclusion: inflation forecast-error variance is dominated by inflation's own innovations. At horizons 12 and 24, INF own-shock share is about 90%, while FEDFUNDS contributes only about 3.8%. Monetary-policy shocks contribute a smaller but nonzero share; they do not explain most inflation variation.
 
 VAR forecast metrics:
 
@@ -398,6 +470,15 @@ Coefficient/significance summary:
 | VARX       | M2_GROWTH     | 19           | 8                      | 0.4211            | 0.0         |
 | VARX       | INF           | 19           | 4                      | 0.2105            | 0.0         |
 
+Robust inference sensitivity:
+
+| model_type | equation      | n_parameters | classical_significant | hc3_significant | hac_significant | hc3_changed | hac_changed |
+| ---------- | ------------- | ------------ | --------------------- | --------------- | --------------- | ----------- | ----------- |
+| VARX       | INDPRO_GROWTH | 19           | 8                     | 2               | 4               | 6           | 6           |
+| VARX       | INF           | 19           | 4                     | 3               | 3               | 1           | 1           |
+| VARX       | M2_GROWTH     | 19           | 8                     | 5               | 8               | 3           | 0           |
+| VARX       | UNRATE        | 19           | 9                     | 0               | 1               | 9           | 8           |
+
 Residual tests:
 
 | equation      | test                                | Acceptable if                                               | durbin_watson | ljung_box_p_value | arch_lm_p_value |
@@ -406,6 +487,8 @@ Residual tests:
 | UNRATE        | Durbin-Watson / Ljung-Box / ARCH-LM | DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05 | 2.0576        | 0.5963            | 1.0             |
 | INDPRO_GROWTH | Durbin-Watson / Ljung-Box / ARCH-LM | DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05 | 2.0774        | 0.0614            | 0.74            |
 | M2_GROWTH     | Durbin-Watson / Ljung-Box / ARCH-LM | DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05 | 2.022         | 0.323             | 0.0             |
+
+Residual interpretation: equation-level tests are mostly acceptable, but the VARX system-level Portmanteau whiteness test rejects. VARX should therefore be treated as a useful conditional forecasting/scenario tool, not a fully specified structural system.
 
 Residual ACF summary, excluding lag 0:
 
@@ -444,6 +527,8 @@ Residual normality:
 | UNRATE        | Jarque-Bera | p-value > 0.05 for approximate normal residuals | 303892.4147      | 0.0                 | 9.9881   | 151.429          | True                     |
 | INDPRO_GROWTH | Jarque-Bera | p-value > 0.05 for approximate normal residuals | 25836.4947       | 0.0                 | -4.224   | 45.8476          | True                     |
 | M2_GROWTH     | Jarque-Bera | p-value > 0.05 for approximate normal residuals | 3892.7493        | 0.0                 | 1.9107   | 19.5242          | True                     |
+
+Normality/ARCH interpretation: VARX residual normality is strongly rejected, and ARCH effects remain especially in INF and M2_GROWTH. This weakens classical inference and supports robust standard errors and scenario-response caution.
 
 VARX endogenous Granger-style predictive relationships:
 
@@ -494,7 +579,7 @@ VARX FEDFUNDS conditional/scenario response:
 | FEDFUNDS | M2_GROWTH     | 12      | -0.0001 |
 | FEDFUNDS | M2_GROWTH     | 24      | 0.0     |
 
-Interpretation: VARX responses are conditional scenario responses, not structural IRFs. Future exogenous paths are imposed externally, so scenario results depend on the assumed exogenous shock path.
+Interpretation: VARX responses are conditional scenario responses, not structural IRFs. Future exogenous paths are imposed externally, so scenario results depend on the assumed exogenous shock path. VARX is useful because FEDFUNDS and SENTIMENT_CHANGE can be externally specified, but it is not the strongest selected inflation forecasting model.
 
 ## 6. Forecast Comparison
 
@@ -550,22 +635,23 @@ Multi-horizon inflation forecast comparison:
 | 12      | Ridge Regression | Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better | 12          | 0.3048 | 0.2322 | 0.5833               | 0.9634                       |
 | 12      | Random Walk      | Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better | 12          | 0.3163 | 0.22   | 0.0                  | 1.0                          |
 
-Forecast conclusion: among the selected econometric models, VAR has the lower optimized inflation RMSE (0.1760). ML benchmarks may improve point forecast accuracy in some horizons, especially Ridge/Random Forest-style models, but they do not provide IRF, FEVD, Cholesky identification, or structural macroeconomic transmission interpretation.
+Forecast conclusion: among the selected econometric models, VAR has the lower optimized inflation RMSE (0.1760). For inflation specifically, selected VAR RMSE is about 0.176, the no-leak naive RMSE is about 0.188, and selected VARX RMSE is about 0.192. These are optimized selected-model recursive holdout metrics. They differ from the all-benchmark one-step/direct forecast table, where the VAR RMSE can appear around 0.199 because the forecast protocol is different. Ridge may be best for pure one-step prediction, but it does not provide Granger causality, IRF, FEVD, Cholesky identification, or structural macroeconomic transmission interpretation. VAR is the main policy-interpretation model; VARX remains useful for conditional policy/scenario forecasting even when it is not the strongest inflation forecaster.
 
 ## 7. Main Economic Conclusions
 
 - Inflation dynamics: inflation is forecast using its own lagged dynamics plus policy, labor-market, production, money, and sentiment channels. Granger-significant relationships above show which variables have predictive content in the optimized system.
+- FEDFUNDS predictive content: Granger results show FEDFUNDS predicts UNRATE and INDPRO_GROWTH more strongly than it predicts inflation directly. Inflation predicting FEDFUNDS is consistent with a policy-reaction function.
 - FEDFUNDS shocks: a positive short-run inflation response appears after a FEDFUNDS shock (h1=0.0424, h6=0.0006), so the price puzzle should be discussed with identification caveats.
-- Unemployment response: check the FEDFUNDS shock IRF table. A positive medium-run UNRATE response is consistent with contractionary policy slowing activity; the exact timing depends on Cholesky ordering and lag specification.
-- Industrial production response: check the FEDFUNDS shock IRF table. Negative medium-run INDPRO_GROWTH responses would be consistent with monetary tightening reducing activity; weak or sign-changing responses indicate sensitivity.
-- FEVD: the inflation FEVD table shows which shocks explain inflation forecast-error variance at horizons 1, 6, 12, and 24. Larger FEDFUNDS shares imply stronger monetary-policy contribution to inflation uncertainty; larger own-INF shares imply inflation persistence.
-- VAR vs VARX: VAR is better for policy interpretation because it supports Granger causality, IRF, FEVD, and endogenous feedback. VARX is better for conditional/scenario forecasting when externally supplied FEDFUNDS, sentiment, money, or crisis paths are substantively meaningful.
+- Unemployment response: unemployment falls after a FEDFUNDS shock in the baseline ordering, which should not be read as a clean causal contractionary-policy effect. It likely reflects endogenous policy reaction and identification limitations.
+- Industrial production response: industrial production rises initially and then becomes weak/sign-changing after a FEDFUNDS shock, reinforcing the identification warning.
+- FEVD: inflation forecast-error variance is mostly own inflation shocks. FEDFUNDS contributes around 3.8% by horizons 12 and 24, so monetary policy is present but not dominant in FEVD.
+- VAR vs VARX: VAR is better for policy interpretation because it supports Granger causality, IRF, FEVD, and endogenous feedback. VARX is better for conditional/scenario forecasting when externally supplied FEDFUNDS and sentiment paths are substantively meaningful, but it is weaker for selected inflation forecasting.
 
 ## 8. Weaknesses and Warnings
 
-- Residual autocorrelation: macroeconomic VAR residuals are rarely perfectly white. The optimized models reduce but may not eliminate serial dependence; Portmanteau/Ljung-Box p-values and ACF exceedances should be reported honestly.
-- Non-normality: Jarque-Bera/system normality may reject because crisis periods create fat tails. This affects classical p-values and confidence intervals more than point forecasts.
-- ARCH effects: low ARCH-LM p-values imply time-varying volatility; robust or bootstrap inference is preferable.
+- Residual autocorrelation: macroeconomic VAR residuals are rarely perfectly white. Equation-level diagnostics are mostly acceptable, but system-level Portmanteau whiteness rejects for both selected VAR and VARX.
+- Non-normality: Jarque-Bera/system normality rejects strongly because crisis periods create fat tails. This affects classical p-values and confidence intervals more than point forecasts.
+- ARCH effects: low ARCH-LM p-values imply time-varying volatility, especially in VAR INF and VARX INF/M2_GROWTH. Robust or bootstrap inference is preferable.
 - Overparameterization: high lags and full six-variable systems can weaken degrees of freedom. The selected models balance diagnostics and interpretability rather than blindly choosing AIC.
 - Cholesky ordering: VAR IRFs depend on recursive identification and variable ordering. Short-run responses are conditional, not automatic causal truth.
 - Price puzzle: if inflation rises after a positive FEDFUNDS shock, discuss endogenous policy reaction, omitted expectations/commodity channels, and identification limitations.
@@ -590,6 +676,11 @@ Key optimization outputs:
 - `outputs/tables/optimized_final_var_granger.csv`
 - `outputs/tables/optimized_final_var_irf_key_fedfunds.csv`
 - `outputs/tables/optimized_final_var_fevd_key_inflation.csv`
+- `outputs/tables/academic_var_irf_confidence_intervals.csv`
+- `outputs/tables/academic_cholesky_ordering_robustness.csv`
+- `outputs/figures/academic_cholesky_ordering_comparison.png`
+- `outputs/tables/academic_var_parameter_significance_robust.csv`
+- `outputs/tables/academic_varx_parameter_significance_robust.csv`
 - `outputs/tables/optimized_final_varx_metrics.csv`
 - `outputs/tables/optimized_final_varx_residual_tests.csv`
 - `outputs/tables/optimized_final_varx_residual_acf.csv`

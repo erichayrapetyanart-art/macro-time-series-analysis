@@ -1,0 +1,6 @@
+model_type,equation,n_parameters,classical_significant,hc3_significant,hac_significant,hc3_changed,hac_changed
+VAR,FEDFUNDS,26,7,2,6,5,3
+VAR,INDPRO_GROWTH,26,9,2,7,7,6
+VAR,INF,26,5,2,3,3,2
+VAR,SENTIMENT_CHANGE,26,8,7,9,1,1
+VAR,UNRATE,26,6,0,2,6,6

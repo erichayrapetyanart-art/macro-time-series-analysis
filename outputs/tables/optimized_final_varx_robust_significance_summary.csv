@@ -1,0 +1,5 @@
+model_type,equation,n_parameters,classical_significant,hc3_significant,hac_significant,hc3_changed,hac_changed
+VARX,INDPRO_GROWTH,19,8,2,4,6,6
+VARX,INF,19,4,3,3,1,1
+VARX,M2_GROWTH,19,8,5,8,3,0
+VARX,UNRATE,19,9,0,1,9,8

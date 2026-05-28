@@ -50,6 +50,12 @@ def load_project_data() -> dict[str, pd.DataFrame]:
         "optimized_crisis": safe_read_csv(TABLE_DIR / "optimized_crisis_dummy_search.csv"),
         "optimized_var_metrics": safe_read_csv(TABLE_DIR / "optimized_final_var_metrics.csv"),
         "optimized_varx_metrics": safe_read_csv(TABLE_DIR / "optimized_final_varx_metrics.csv"),
+        "optimized_var_granger": safe_read_csv(TABLE_DIR / "optimized_final_var_granger.csv"),
+        "optimized_varx_granger": safe_read_csv(TABLE_DIR / "optimized_final_varx_granger.csv"),
+        "optimized_var_residual_tests": safe_read_csv(TABLE_DIR / "optimized_final_var_residual_tests.csv"),
+        "optimized_varx_residual_tests": safe_read_csv(TABLE_DIR / "optimized_final_varx_residual_tests.csv"),
+        "var_irf_ci": safe_read_csv(TABLE_DIR / "academic_var_irf_confidence_intervals.csv"),
+        "cholesky_robustness": safe_read_csv(TABLE_DIR / "academic_cholesky_ordering_robustness.csv"),
     }
 
 

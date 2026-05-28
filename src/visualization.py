@@ -296,6 +296,80 @@ def plot_response_grid(
     return apply_theme(fig, template)
 
 
+def plot_response_grid_with_ci(
+    response_df: pd.DataFrame,
+    shock: str,
+    title: str,
+    ci_df: pd.DataFrame | None = None,
+    template: str | None = None,
+) -> go.Figure:
+    subset = response_df.loc[response_df["shock"] == shock].copy()
+    y_col = "value" if "value" in subset.columns else "orthogonalized_response"
+    responses = list(subset["response"].drop_duplicates())
+    if not responses:
+        return apply_theme(go.Figure(), template)
+
+    rows = int(np.ceil(len(responses) / 2))
+    fig = make_subplots(
+        rows=rows,
+        cols=2,
+        subplot_titles=responses,
+        shared_xaxes=False,
+        vertical_spacing=0.09,
+        horizontal_spacing=0.08,
+    )
+    for i, response in enumerate(responses):
+        row = i // 2 + 1
+        col = i % 2 + 1
+        response_path = subset.loc[subset["response"] == response]
+        response_ci = pd.DataFrame()
+        if ci_df is not None and not ci_df.empty:
+            response_ci = ci_df.loc[(ci_df["shock"] == shock) & (ci_df["response"] == response)].copy()
+        if not response_ci.empty and {"lower_95", "upper_95"}.issubset(response_ci.columns):
+            fig.add_trace(
+                go.Scatter(
+                    x=response_ci["horizon"],
+                    y=response_ci["upper_95"],
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip",
+                ),
+                row=row,
+                col=col,
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=response_ci["horizon"],
+                    y=response_ci["lower_95"],
+                    mode="lines",
+                    fill="tonexty",
+                    fillcolor="rgba(37, 99, 235, 0.18)",
+                    line=dict(width=0),
+                    name="95% interval" if i == 0 else None,
+                    showlegend=i == 0,
+                    hoverinfo="skip",
+                ),
+                row=row,
+                col=col,
+            )
+        fig.add_trace(
+            go.Scatter(
+                x=response_path["horizon"],
+                y=response_path[y_col],
+                mode="lines+markers",
+                name="response" if i == 0 else None,
+                showlegend=i == 0,
+            ),
+            row=row,
+            col=col,
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=row, col=col)
+    fig.update_yaxes(matches=None)
+    fig.update_layout(title=title, height=max(540, 260 * rows))
+    return apply_theme(fig, template)
+
+
 def plot_granger_heatmap(granger: pd.DataFrame, template: str | None = None) -> go.Figure:
     pivot = granger.pivot(index="source", columns="target", values="p_value")
     fig = px.imshow(

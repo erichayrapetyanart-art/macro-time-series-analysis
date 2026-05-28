@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from io import StringIO
 
 import numpy as np
@@ -34,6 +35,9 @@ from src.diagnostics import (
 from src.forecasting import combined_inflation_forecasts, official_var_varx_forecasts
 from src.models_var import equation_fit_metrics, fit_var_system, select_var_lags, var_fevd_paths, var_irf_paths
 from src.models_varx import fit_varx_system, select_varx_lags, varx_exogenous_scenario_response
+import src.visualization as visualization_module
+
+visualization_module = importlib.reload(visualization_module)
 from src.visualization import (
     plot_acf,
     plot_correlogram,
@@ -45,6 +49,7 @@ from src.visualization import (
     plot_cross_correlation_lags,
     plot_residual_distribution,
     plot_response_grid,
+    plot_response_grid_with_ci,
     plot_time_series,
     plot_var_varx_forecast,
 )
@@ -80,9 +85,75 @@ st.markdown(
 )
 
 
-VAR_COLUMNS = ["FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"]
+VAR_COLUMNS = ["INF", "FEDFUNDS", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
+VAR_LAG = 5
 VARX_ENDOG = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH"]
-VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE", "D_2008", "D_COVID"]
+VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE"]
+VARX_LAG = 4
+BASELINE_SPLIT_DATE = pd.Timestamp("2023-04-01").date()
+CRISIS_DUMMY_OPTIONS = ["D_2008", "D_COVID"]
+CHOLESKY_ORDERINGS = {
+    "A_policy_first": ["FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"],
+    "B_slow_macro_first_policy_later": ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE", "FEDFUNDS"],
+    "C_granger_policy_reaction": ["INF", "INDPRO_GROWTH", "UNRATE", "FEDFUNDS", "SENTIMENT_CHANGE"],
+}
+
+
+def baseline_config(model_type: str) -> dict:
+    if model_type == "VARX":
+        return {
+            "model_type": "VARX",
+            "endog": VARX_ENDOG,
+            "exog": VARX_EXOG,
+            "crisis_dummies": [],
+            "lag": VARX_LAG,
+            "split_date": BASELINE_SPLIT_DATE,
+            "target": "INF",
+        }
+    return {
+        "model_type": "VAR",
+        "endog": VAR_COLUMNS,
+        "exog": [],
+        "crisis_dummies": [],
+        "lag": VAR_LAG,
+        "split_date": BASELINE_SPLIT_DATE,
+        "target": "INF",
+    }
+
+
+def set_baseline_state(key_prefix: str, model_type: str, set_model_type: bool = True) -> None:
+    config = baseline_config(model_type)
+    if set_model_type:
+        st.session_state[f"{key_prefix}_model_type"] = config["model_type"]
+    st.session_state[f"{key_prefix}_split_date"] = config["split_date"]
+    st.session_state[f"{key_prefix}_{config['model_type']}_endog"] = list(config["endog"])
+    st.session_state[f"{key_prefix}_varx_exog"] = list(config["exog"])
+    st.session_state[f"{key_prefix}_crisis_dummies"] = list(config["crisis_dummies"])
+    st.session_state[f"{key_prefix}_max_lag"] = config["lag"]
+    st.session_state[f"{key_prefix}_lag_order"] = config["lag"]
+    st.session_state[f"{key_prefix}_target"] = config["target"]
+
+
+def on_model_type_change(key_prefix: str) -> None:
+    set_baseline_state(key_prefix, st.session_state[f"{key_prefix}_model_type"], set_model_type=False)
+
+
+def is_baseline_configuration(
+    model_type: str,
+    split_date,
+    endog: list[str],
+    exog_without_dummies: list[str],
+    crisis_dummies: list[str],
+    lag_order: int,
+) -> bool:
+    config = baseline_config(model_type)
+    return (
+        pd.Timestamp(split_date).date() == config["split_date"]
+        and list(endog) == list(config["endog"])
+        and list(exog_without_dummies) == list(config["exog"])
+        and list(crisis_dummies) == list(config["crisis_dummies"])
+        and int(lag_order) == int(config["lag"])
+    )
 
 
 @st.cache_data
@@ -102,7 +173,8 @@ def select_lags_cached(
     data = dataframe_from_json(data_json)
     train = data.loc[:split_date]
     if model_type == "VAR":
-        return select_var_lags(train[list(endog)], max_lag)
+        train_exog = train[list(exog)] if exog else None
+        return select_var_lags(train[list(endog)], max_lag, exog=train_exog)
     train_exog = train[list(exog)] if exog else None
     return select_varx_lags(train[list(endog)], train_exog, max_lag)
 
@@ -119,7 +191,8 @@ def fit_model_cached(
 ) -> dict:
     data = dataframe_from_json(data_json)
     if model_type == "VAR":
-        result = fit_var_system(data, split_date, list(endog), lag_order, target)
+        exog_data = data[list(exog)] if exog else None
+        result = fit_var_system(data, split_date, list(endog), lag_order, target, exog=exog_data)
     else:
         result = fit_varx_system(data, split_date, list(endog), list(exog), lag_order, target)
     return {
@@ -173,13 +246,10 @@ def unpack_run(
 def baseline_residual_run(model_type: str) -> dict:
     data = load_project_data()
     model_df = data["model"]
-    dummies = data["dummies"]
-    lag = 4
     if model_type == "VAR":
-        fitted = VAR(model_df[VAR_COLUMNS], exog=dummies[["D_2008", "D_COVID"]]).fit(lag, trend="c")
+        fitted = VAR(model_df[VAR_COLUMNS]).fit(VAR_LAG, trend="c")
     else:
-        exog = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
-        fitted = VAR(model_df[VARX_ENDOG], exog=exog).fit(lag, trend="c")
+        fitted = VAR(model_df[VARX_ENDOG], exog=model_df[VARX_EXOG]).fit(VARX_LAG, trend="c")
     try:
         whiteness_p = float(fitted.test_whiteness(nlags=12).pvalue)
     except Exception:
@@ -217,7 +287,8 @@ def official_forecasts_payload(model_json: str, dummies_json: str) -> dict:
         VAR_COLUMNS,
         VARX_ENDOG,
         VARX_EXOG,
-        lag_order=4,
+        var_lag_order=VAR_LAG,
+        varx_lag_order=VARX_LAG,
         test_months=36,
     )
     return {
@@ -230,13 +301,11 @@ def official_forecasts_payload(model_json: str, dummies_json: str) -> dict:
 def direct_model_results(model_type: str) -> dict:
     project = load_project_data()
     model_data = project["model"]
-    dummy_data = project["dummies"]
     if model_type == "VAR":
-        fitted = VAR(model_data[VAR_COLUMNS], exog=dummy_data[["D_2008", "D_COVID"]]).fit(4, trend="c")
+        fitted = VAR(model_data[VAR_COLUMNS]).fit(VAR_LAG, trend="c")
         endog_data = model_data[VAR_COLUMNS]
     else:
-        exog_data = pd.concat([model_data[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummy_data], axis=1)
-        fitted = VAR(model_data[VARX_ENDOG], exog=exog_data[VARX_EXOG]).fit(4, trend="c")
+        fitted = VAR(model_data[VARX_ENDOG], exog=model_data[VARX_EXOG]).fit(VARX_LAG, trend="c")
         endog_data = model_data[VARX_ENDOG]
     roots = 1 / fitted.roots
     roots_df = pd.DataFrame({"real": roots.real, "imag": roots.imag, "modulus": np.abs(roots)})
@@ -258,52 +327,79 @@ def test_table(table: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 def interactive_model_control_form(key_prefix: str, title: str) -> tuple[ModelRun | None, pd.DataFrame]:
+    if not st.session_state.get(f"{key_prefix}_initialized"):
+        set_baseline_state(key_prefix, "VAR")
+        st.session_state[f"{key_prefix}_initialized"] = True
+
     st.subheader(title)
     st.markdown(
         """
-        This control form is for sensitivity analysis. It does not replace the official baseline specification
-        reported in the notebook; it shows how results change when the train/test split, variables, and lag order change.
+        The default configuration is the optimized baseline specification selected from the model-search procedure.
+        Users can modify the settings below to perform sensitivity analysis.
+
+        **Baseline model** means the official selected specification used for final interpretation.
+        **Interactive model** means a user-modified sensitivity-analysis specification.
         """
     )
+    b1, b2 = st.columns(2)
+    b1.button("Load baseline VAR", key=f"{key_prefix}_load_var", on_click=set_baseline_state, args=(key_prefix, "VAR"))
+    b2.button("Load baseline VARX", key=f"{key_prefix}_load_varx", on_click=set_baseline_state, args=(key_prefix, "VARX"))
     container = st.container(border=True)
     run: ModelRun | None = None
     lag_table = pd.DataFrame()
     with container:
         endog_options = list(model_df.columns)
-        exog_options = list(modeling_df.columns)
-        default_split = model_df.index[-37].date()
+        exog_options = list(model_df.columns)
         c1, c2 = st.columns(2)
-        split_date = c1.date_input(
-            "Train/test split",
-            value=default_split,
-            min_value=model_df.index[60].date(),
-            max_value=model_df.index[-MIN_TEST_OBS - 1].date(),
-            key=f"{key_prefix}_split_date",
-        )
+        split_key = f"{key_prefix}_split_date"
+        split_kwargs = {
+            "label": "Train/test split",
+            "min_value": model_df.index[60].date(),
+            "max_value": model_df.index[-MIN_TEST_OBS - 1].date(),
+            "key": split_key,
+        }
+        if split_key not in st.session_state:
+            split_kwargs["value"] = BASELINE_SPLIT_DATE
+        split_date = c1.date_input(**split_kwargs)
         model_type = c2.radio(
             "Model type",
             ["VAR", "VARX"],
             horizontal=True,
             key=f"{key_prefix}_model_type",
+            on_change=on_model_type_change,
+            args=(key_prefix,),
         )
 
         default_endog = VAR_COLUMNS if model_type == "VAR" else VARX_ENDOG
-        endog = st.multiselect(
-            "Endogenous variables",
-            endog_options,
-            default=default_endog,
-            key=f"{key_prefix}_{model_type}_endog",
-        )
+        endog_key = f"{key_prefix}_{model_type}_endog"
+        if endog_key in st.session_state:
+            st.session_state[endog_key] = [var for var in st.session_state[endog_key] if var in endog_options]
+        endog_kwargs = {"label": "Endogenous variables", "options": endog_options, "key": endog_key}
+        if endog_key not in st.session_state:
+            endog_kwargs["default"] = default_endog
+        endog = st.multiselect(**endog_kwargs)
 
-        exog: list[str] = []
+        exog_without_dummies: list[str] = []
         if model_type == "VARX":
             available_exog = [var for var in exog_options if var not in endog]
-            exog = st.multiselect(
-                "VARX exogenous variables",
-                available_exog,
-                default=[var for var in VARX_EXOG if var in available_exog],
-                key=f"{key_prefix}_varx_exog",
-            )
+            varx_exog_key = f"{key_prefix}_varx_exog"
+            if varx_exog_key in st.session_state:
+                st.session_state[varx_exog_key] = [var for var in st.session_state[varx_exog_key] if var in available_exog]
+            exog_kwargs = {"label": "VARX exogenous variables", "options": available_exog, "key": varx_exog_key}
+            if varx_exog_key not in st.session_state:
+                exog_kwargs["default"] = [var for var in VARX_EXOG if var in available_exog]
+            exog_without_dummies = st.multiselect(**exog_kwargs)
+        crisis_key = f"{key_prefix}_crisis_dummies"
+        crisis_kwargs = {
+            "label": "Crisis dummies / exogenous controls",
+            "options": CRISIS_DUMMY_OPTIONS,
+            "key": crisis_key,
+            "help": "Official baseline uses no crisis dummies. Add them only for sensitivity analysis.",
+        }
+        if crisis_key not in st.session_state:
+            crisis_kwargs["default"] = []
+        crisis_dummies = st.multiselect(**crisis_kwargs)
+        exog = list(exog_without_dummies) + list(crisis_dummies)
 
         valid_selection = True
         if len(set(endog) & set(exog)):
@@ -321,13 +417,24 @@ def interactive_model_control_form(key_prefix: str, title: str) -> tuple[ModelRu
         test_n = int((model_df.index > split_ts).sum())
         dyn_max_lag = dynamic_max_lag(train_n, len(endog) if endog else 1, len(exog))
         c3, c4, c5 = st.columns(3)
-        max_lag = c3.slider(
-            "Max lag for selection",
-            1,
-            dyn_max_lag,
-            min(4, dyn_max_lag),
-            key=f"{key_prefix}_max_lag",
-        )
+        baseline_lag = VAR_LAG if model_type == "VAR" else VARX_LAG
+        max_lag_key = f"{key_prefix}_max_lag"
+        lag_key = f"{key_prefix}_lag_order"
+        if max_lag_key in st.session_state:
+            st.session_state[max_lag_key] = int(min(max(st.session_state[max_lag_key], 1), dyn_max_lag))
+        if lag_key in st.session_state:
+            st.session_state[lag_key] = int(min(max(st.session_state[lag_key], 1), dyn_max_lag))
+        max_lag_kwargs = {
+            "label": "Max lag for selection",
+            "min_value": 1,
+            "max_value": dyn_max_lag,
+            "key": max_lag_key,
+        }
+        if max_lag_key not in st.session_state:
+            max_lag_kwargs["value"] = min(baseline_lag, dyn_max_lag)
+        max_lag = c3.slider(**max_lag_kwargs)
+        if lag_key in st.session_state:
+            st.session_state[lag_key] = int(min(max(st.session_state[lag_key], 1), max_lag))
 
         data_json = dataframe_to_json(modeling_df)
         if valid_selection and test_n >= MIN_TEST_OBS:
@@ -344,26 +451,41 @@ def interactive_model_control_form(key_prefix: str, title: str) -> tuple[ModelRu
             if not lag_table.empty and lag_table["AIC"].notna().any():
                 selected_lag = int(lag_table.loc[lag_table["AIC"].idxmin(), "lag"])
                 selected_lag = max(1, selected_lag)
-            lag_order = c4.slider(
-                "Manual lag order",
-                1,
-                max_lag,
-                min(selected_lag, max_lag),
-                key=f"{key_prefix}_lag_order",
-            )
-            target = c5.selectbox(
-                "Forecast target",
+            lag_kwargs = {
+                "label": "Manual lag order",
+                "min_value": 1,
+                "max_value": max_lag,
+                "key": lag_key,
+            }
+            if lag_key not in st.session_state:
+                lag_kwargs["value"] = min(baseline_lag, max_lag)
+            lag_order = c4.slider(**lag_kwargs)
+            target_key = f"{key_prefix}_target"
+            if endog and st.session_state.get(target_key) not in endog:
+                st.session_state[target_key] = "INF" if "INF" in endog else endog[0]
+            target_kwargs = {"label": "Forecast target", "options": endog, "key": target_key}
+            if target_key not in st.session_state:
+                target_kwargs["index"] = endog.index("INF") if "INF" in endog else 0
+            target = c5.selectbox(**target_kwargs)
+            baseline_match = is_baseline_configuration(
+                model_type,
+                split_date,
                 endog,
-                index=endog.index("INF") if "INF" in endog else 0,
-                key=f"{key_prefix}_target",
+                exog_without_dummies,
+                crisis_dummies,
+                lag_order,
             )
+            if baseline_match:
+                st.success(f"Baseline model active: official selected {model_type} specification.")
+            else:
+                st.warning("You are now viewing a custom specification, not the official baseline model.")
             per_eq, total_params = parameter_count(len(endog), lag_order, len(exog))
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Train obs.", f"{train_n:,}")
             m2.metric("Test obs.", f"{test_n:,}")
             m3.metric("Parameters/equation", f"{per_eq:,}")
             m4.metric("Total parameters", f"{total_params:,}")
-            if train_n / max(total_params, 1) < 5:
+            if train_n / max(per_eq, 1) < 8:
                 st.warning("High overparameterization risk for this specification.")
             try:
                 payload = fit_model_cached(
@@ -414,7 +536,7 @@ st.caption("Inflation and macroeconomic policy analysis with VAR, VARX, and ML f
 metric_cols = st.columns(4)
 metric_cols[0].metric("Raw observations", f"{len(raw):,}")
 metric_cols[1].metric("Model observations", f"{len(model_df):,}")
-metric_cols[2].metric("Official VAR lag", "4")
+metric_cols[2].metric("Official VAR / VARX lags", f"{VAR_LAG} / {VARX_LAG}")
 metric_cols[3].metric("Best RMSE model", data["ranking"].iloc[0]["model"])
 
 
@@ -448,7 +570,9 @@ if page == "Overview":
 
             VAR models joint macroeconomic dynamics among endogenous variables. VARX models condition forecasts
             on externally supplied policy, sentiment, or crisis paths. Machine-learning models are kept as
-            predictive benchmarks, not as substitutes for policy interpretation.
+            predictive benchmarks, not as substitutes for policy interpretation. In this project, VAR is the
+            main policy-interpretation model, VARX is mainly the conditional/scenario forecasting model, and
+            Ridge-style ML is useful as a pure one-step prediction benchmark.
             """
         )
     st.subheader("Dataset and Final Goals")
@@ -472,7 +596,21 @@ if page == "Overview":
         interactive controls are for sensitivity analysis, not for replacing the reported model.
         """
     )
-    st.dataframe(data["architecture"], width="stretch", hide_index=True)
+    st.markdown(
+        f"""
+        **Selected VAR:** `VAR_core_plus_sentiment`, endogenous variables
+        `{", ".join(VAR_COLUMNS)}`, lag `{VAR_LAG}`, no crisis dummies.
+
+        **Selected VARX:** `VARX_A_policy_sentiment_exog`, endogenous variables
+        `{", ".join(VARX_ENDOG)}`, exogenous variables `{", ".join(VARX_EXOG)}`, lag `{VARX_LAG}`, no crisis dummies.
+        VARX is treated as a conditional/scenario forecasting model, while VAR remains the main dynamic policy-analysis model.
+        """
+    )
+    st.info(
+        "VAR lag 5 was not chosen directly by AIC/BIC: AIC/FPE preferred lag 3 and BIC/HQIC preferred lag 2. "
+        "Lag 5 was retained because the broader optimization balanced forecast performance, residual ACF behavior, "
+        "stability, and interpretability. For VARX, AIC/FPE preferred lag 4, BIC lag 1, and HQIC lag 3."
+    )
     if not data["comparison"].empty:
         st.write("Official VAR/VARX diagnostic comparison")
         st.dataframe(
@@ -700,7 +838,11 @@ elif page == "Model Architecture and Direct Results":
         st.plotly_chart(plot_forecast_run(interactive_run), width="stretch", key="interactive_arch_forecast")
 
 elif page == "Forecast Comparison":
-    st.subheader("VAR and VARX Forecasts for Modeled Variables")
+    st.subheader("Selected VAR/VARX Recursive Test Forecasts")
+    st.caption(
+        "This section uses the optimized selected-model forecast design: fixed official VAR/VARX specifications, "
+        "a 36-month holdout, and dynamic recursive forecasts from the trained system."
+    )
     forecast_payload = official_forecasts_payload(dataframe_to_json(model_df), dataframe_to_json(dummies))
     varvarx_forecasts = dataframe_from_json(forecast_payload["forecasts"]).reset_index()
     varvarx_forecasts = varvarx_forecasts.rename(columns={"index": "date"})
@@ -713,10 +855,27 @@ elif page == "Forecast Comparison":
         width="stretch",
         hide_index=True,
     )
+    inf_metrics = varvarx_metrics.loc[varvarx_metrics["variable"] == "INF"].copy()
+    if not inf_metrics.empty:
+        var_inf = inf_metrics.loc[inf_metrics["model"] == "VAR", "RMSE"]
+        varx_inf = inf_metrics.loc[inf_metrics["model"] == "VARX", "RMSE"]
+        if not var_inf.empty and not varx_inf.empty:
+            st.info(
+                f"For inflation in the optimized official comparison, VAR RMSE is about {var_inf.iloc[0]:.3f} and "
+                f"VARX RMSE is about {varx_inf.iloc[0]:.3f}. The no-leak naive benchmark is about 0.188 in the "
+                "optimization context, so VAR beats naive while VARX is mainly useful for conditional/scenario analysis."
+            )
     st.write("All VAR/VARX variable forecast metrics")
     st.dataframe(round_numeric(varvarx_metrics), width="stretch", hide_index=True)
 
-    st.subheader("Inflation Forecast Comparison Across All Models")
+    st.subheader("One-Step / Direct Inflation Benchmark Comparison")
+    st.info(
+        "Do not compare this table mechanically with the optimized VAR RMSE above. The selected-model RMSE "
+        "around 0.176 comes from the optimized recursive VAR forecast design. The all-benchmark table uses the "
+        "notebook's one-step/direct benchmark design, where VAR can appear around 0.199. Ridge may be best for "
+        "pure one-step prediction, but VAR/VARX remain more useful for economic interpretation because they provide "
+        "Granger causality, IRF, FEVD, and policy-shock analysis."
+    )
     forecasts = combined_inflation_forecasts(data["econ_forecasts"], data["ml_forecasts"])
     if not forecasts.empty:
         available_models = [c for c in forecasts.columns if c not in {"Actual INF", "actual_INF"}]
@@ -748,7 +907,10 @@ elif page == "Residual Diagnostics":
     c2.metric("Portmanteau p-value", f"{baseline['whiteness_p']:.4g}" if baseline["whiteness_p"] is not None else "n/a")
     c3.metric("Normality p-value", f"{baseline['normality_p']:.4g}" if baseline["normality_p"] is not None else "n/a")
     if baseline["whiteness_p"] is not None and baseline["whiteness_p"] < 0.05:
-        st.warning("Whiteness is rejected. Residual dependence remains; forecast and IRF interpretation should be cautious.")
+        st.warning(
+            "System-level Portmanteau whiteness is rejected. Equation-level Ljung-Box/DW/ACF diagnostics may look acceptable, "
+            "but the residual system is not perfectly white; forecasts, IRFs, and FEVD should be interpreted with caution."
+        )
     st.plotly_chart(plot_time_series(residuals, list(residuals.columns), f"{model_label} Residual Time Series"), width="stretch", key="resid_ts")
     equation = st.selectbox("Residual equation", list(residuals.columns))
     st.plotly_chart(plot_acf(acf_values(residuals[equation]), equation), width="stretch", key="resid_acf")
@@ -777,6 +939,10 @@ elif page == "Residual Diagnostics":
     st.subheader("Normality and Heteroskedasticity")
     st.plotly_chart(plot_residual_distribution(residuals, equation), width="stretch", key="resid_dist")
     st.dataframe(round_numeric(residual_normality_table(residuals)), width="stretch", hide_index=True)
+    st.caption(
+        "Non-normal and heteroskedastic residuals are common in macroeconomic data, especially around 2008 and COVID. "
+        "They do not automatically invalidate point forecasts, but they weaken classical p-values and confidence intervals."
+    )
     norm_table = data["var_norm"] if model_label == "VAR" else data["varx_norm"]
     het_table = data["var_het"] if model_label == "VAR" else data["varx_het"]
     st.dataframe(test_table(norm_table, "Jarque-Bera/system normality p-value > 0.05 is preferred"), width="stretch", hide_index=True)
@@ -798,19 +964,35 @@ elif page == "Significance Analysis and Granger Causality":
     st.write("Robust p-value sensitivity")
     if not robust.empty:
         changed = robust.loc[robust["significance_changed_hc3"] | robust["significance_changed_hac"]]
-        st.dataframe(test_table(changed, "stable significance under classical, HC3, and HAC p-values is stronger evidence"), width="stretch", hide_index=True)
+        if changed.empty:
+            st.success("No coefficient significance flags changed under HC3/HAC at the 5% threshold.")
+        else:
+            st.dataframe(test_table(changed, "stable significance under classical, HC3, and HAC p-values is stronger evidence"), width="stretch", hide_index=True)
+        with st.expander("Full classical vs robust significance table", expanded=False):
+            st.dataframe(test_table(robust, "robust p-values are a sensitivity check because residual normality/ARCH assumptions are weak"), width="stretch", hide_index=True)
 
     st.subheader("Part B: Granger Causality")
-    granger = data["granger"].copy()
+    granger_model = st.radio("Granger model", ["Optimized VAR", "Optimized VARX", "Academic baseline"], horizontal=True)
+    if granger_model == "Optimized VAR" and not data["optimized_var_granger"].empty:
+        granger = data["optimized_var_granger"].copy()
+    elif granger_model == "Optimized VARX" and not data["optimized_varx_granger"].empty:
+        granger = data["optimized_varx_granger"].copy()
+    else:
+        granger = data["granger"].copy()
     granger = add_rule_column(granger, "p-value < 0.05 indicates Granger/predictive causality, not structural causality")
     if "significant_at_5pct" in granger:
         granger["significant"] = np.where(granger["significant_at_5pct"], "yes", "no")
-    st.plotly_chart(plot_granger_heatmap(data["granger"]), width="stretch", key="granger_heatmap")
-    st.dataframe(round_numeric(granger.sort_values("p_value")), width="stretch", hide_index=True)
+    if granger.empty:
+        st.warning("No Granger table is available for this selection.")
+    else:
+        st.plotly_chart(plot_granger_heatmap(granger), width="stretch", key="granger_heatmap")
+        st.dataframe(round_numeric(granger.sort_values("p_value")), width="stretch", hide_index=True)
     st.markdown(
         """
         Granger results help identify predictive channels and can support the economic motivation for the
-        Cholesky ordering. They do not prove structural causality.
+        Cholesky ordering. They do not prove structural causality. In the optimized VAR, FEDFUNDS has stronger
+        predictive content for UNRATE and INDPRO_GROWTH than for inflation directly, while inflation predicting
+        FEDFUNDS is consistent with a policy-reaction function.
         """
     )
 
@@ -827,32 +1009,58 @@ elif page == "IRF and FEVD":
             """,
             unsafe_allow_html=True,
         )
-        st.dataframe(data["ordering"], width="stretch", hide_index=True)
-        endog_order = st.text_input("Cholesky order", value=", ".join(VAR_COLUMNS))
-        order = [x.strip() for x in endog_order.split(",") if x.strip()]
-        if sorted(order) != sorted(VAR_COLUMNS):
-            st.error("Ordering must contain the official VAR variables exactly once.")
-        else:
-            fitted = VAR(model_df[order], exog=dummies[["D_2008", "D_COVID"]]).fit(4, trend="c")
-            irf_df = var_irf_paths(fitted, horizon)
-            shock = st.selectbox("Shock variable", order, index=order.index("FEDFUNDS"))
-            st.plotly_chart(
-                plot_response_grid(irf_df, shock, f"VAR IRFs: All Responses to {shock} Shock"),
-                width="stretch",
-                key="var_irf_grid",
-            )
+        ordering_name = st.selectbox("Cholesky ordering", list(CHOLESKY_ORDERINGS.keys()))
+        order = CHOLESKY_ORDERINGS[ordering_name]
+        st.caption(f"Current ordering: {', '.join(order)}")
+        fitted = VAR(model_df[order]).fit(VAR_LAG, trend="c")
+        shock = st.selectbox("Shock variable", order, index=order.index("FEDFUNDS") if "FEDFUNDS" in order else 0)
+        show_ci = st.checkbox("Show precomputed 95% confidence intervals when available", value=True)
+        st.caption(
+            "Confidence intervals are Monte Carlo bands with independent simulation seeds. Under recursive Cholesky "
+            "identification, some horizon-0 responses are exactly zero by construction when the response variable is "
+            "ordered before the shock; that is an identification restriction, not a failed interval calculation."
+        )
+        irf_df = var_irf_paths(fitted, horizon)
+        ci_df = pd.DataFrame()
+        if show_ci and not data["var_irf_ci"].empty:
+            ci_df = data["var_irf_ci"].loc[
+                (data["var_irf_ci"]["ordering_name"] == ordering_name)
+                & (data["var_irf_ci"]["shock"] == shock)
+                & (data["var_irf_ci"]["horizon"] <= horizon)
+            ].copy()
+        st.plotly_chart(
+            plot_response_grid_with_ci(irf_df, shock, f"VAR IRFs: All Responses to {shock} Shock", ci_df=ci_df),
+            width="stretch",
+            key="var_irf_grid",
+        )
+        st.warning(
+            "FEDFUNDS shock responses are not a clean textbook contractionary policy experiment. If inflation, output, "
+            "or employment improve after a FEDFUNDS shock, interpret this as a price-puzzle/endogenous policy-reaction issue."
+        )
+        st.dataframe(
+            test_table(
+                irf_df.loc[irf_df["shock"] == shock],
+                "interpret responses as Cholesky-identified conditional dynamics; ordering affects short-run results",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        if not data["cholesky_robustness"].empty:
+            st.write("Alternative ordering robustness for FEDFUNDS shock")
             st.dataframe(
                 test_table(
-                    irf_df.loc[irf_df["shock"] == shock],
-                    "interpret responses as Cholesky-identified conditional dynamics; ordering affects short-run results",
+                    data["cholesky_robustness"],
+                    "similar signs across defensible orderings indicate stronger IRF robustness",
                 ),
                 width="stretch",
                 hide_index=True,
             )
-            fevd_df = var_fevd_paths(fitted, horizon)
-            fevd_response = st.selectbox("FEVD response", order, index=order.index("INF"))
-            fig = px.area(fevd_df.query("response == @fevd_response"), x="horizon", y="variance_share", color="shock", title=f"FEVD for {fevd_response}")
-            st.plotly_chart(fig, width="stretch", key="var_fevd")
+        fevd_df = var_fevd_paths(fitted, horizon)
+        fevd_response = st.selectbox("FEVD response", order, index=order.index("INF") if "INF" in order else 0)
+        fig = px.area(fevd_df.query("response == @fevd_response"), x="horizon", y="variance_share", color="shock", title=f"FEVD for {fevd_response}")
+        st.plotly_chart(fig, width="stretch", key="var_fevd")
+        if fevd_response == "INF":
+            st.info("Inflation FEVD is dominated by INF own innovations; FEDFUNDS contributes a smaller but nonzero share around 3.8% at 12-24 months in the optimized baseline.")
     else:
         st.markdown(
             """
@@ -862,8 +1070,8 @@ elif page == "IRF and FEVD":
             """,
             unsafe_allow_html=True,
         )
-        exog_data = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
-        fitted = VAR(model_df[VARX_ENDOG], exog=exog_data).fit(4, trend="c")
+        exog_data = model_df[VARX_EXOG]
+        fitted = VAR(model_df[VARX_ENDOG], exog=exog_data).fit(VARX_LAG, trend="c")
         shock = st.selectbox("Exogenous scenario shock", list(exog_data.columns), index=0)
         response_df = varx_exogenous_scenario_response(fitted, model_df[VARX_ENDOG], list(exog_data.columns), shock, horizon)
         st.markdown(
@@ -929,11 +1137,16 @@ elif page == "Robustness":
     if not data["regime"].empty:
         st.write("Pre-COVID / full-sample and regime split comparison")
         st.dataframe(test_table(data["regime"], "stable signs/significance across regimes indicate stronger robustness"), width="stretch", hide_index=True)
-    if not data["irf_robustness"].empty:
+    ordering_table = data["cholesky_robustness"] if not data["cholesky_robustness"].empty else data["irf_robustness"]
+    if not ordering_table.empty:
         st.write("Alternative Cholesky ordering")
-        response = st.selectbox("IRF ordering response", sorted(data["irf_robustness"]["response"].unique()))
-        subset = data["irf_robustness"].loc[data["irf_robustness"]["response"] == response]
-        fig = px.bar(subset, x="ordering_name", y="response_h6", title=f"{response} response to FEDFUNDS shock at horizon 6")
+        response = st.selectbox("IRF ordering response", sorted(ordering_table["response"].unique()))
+        subset = ordering_table.loc[ordering_table["response"] == response].copy()
+        if "response_h6" in subset:
+            fig = px.bar(subset, x="ordering_name", y="response_h6", title=f"{response} response to FEDFUNDS shock at horizon 6")
+        else:
+            h6 = subset.loc[subset["horizon"] == 6]
+            fig = px.bar(h6, x="ordering_name", y="value", title=f"{response} response to FEDFUNDS shock at horizon 6")
         fig.add_hline(y=0, line_dash="dash", line_color="gray")
         st.plotly_chart(fig, width="stretch", key="irf_robust_order")
         st.dataframe(test_table(subset, "similar response signs across orderings indicate stronger IRF robustness"), width="stretch", hide_index=True)

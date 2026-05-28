@@ -89,32 +89,32 @@ def official_var_varx_forecasts(
     var_columns: list[str],
     varx_endog: list[str],
     varx_exog: list[str],
-    lag_order: int = 4,
+    var_lag_order: int = 5,
+    varx_lag_order: int = 4,
     test_months: int = 36,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     train = model_df.iloc[:-test_months]
     test = model_df.iloc[-test_months:]
-    train_dummies = dummies.loc[train.index]
-    test_dummies = dummies.loc[test.index]
+    train_full = pd.concat([train, dummies.loc[train.index]], axis=1)
+    test_full = pd.concat([test, dummies.loc[test.index]], axis=1)
 
     forecast_rows = []
     metric_rows = []
 
-    var = VAR(train[var_columns], exog=train_dummies[["D_2008", "D_COVID"]]).fit(lag_order, trend="c")
+    var = VAR(train[var_columns]).fit(var_lag_order, trend="c")
     var_forecast_values = var.forecast(
-        train[var_columns].values[-lag_order:],
+        train[var_columns].values[-var_lag_order:],
         steps=len(test),
-        exog_future=test_dummies[["D_2008", "D_COVID"]].values,
     )
     var_forecast = pd.DataFrame(var_forecast_values, index=test.index, columns=var_columns)
 
-    train_varx_exog = pd.concat([train[["FEDFUNDS", "SENTIMENT_CHANGE"]], train_dummies], axis=1)
-    test_varx_exog = pd.concat([test[["FEDFUNDS", "SENTIMENT_CHANGE"]], test_dummies], axis=1)
-    varx = VAR(train[varx_endog], exog=train_varx_exog[varx_exog]).fit(lag_order, trend="c")
+    train_varx_exog = train_full[varx_exog] if varx_exog else None
+    test_varx_exog = test_full[varx_exog] if varx_exog else None
+    varx = VAR(train[varx_endog], exog=train_varx_exog).fit(varx_lag_order, trend="c")
     varx_forecast_values = varx.forecast(
-        train[varx_endog].values[-lag_order:],
+        train[varx_endog].values[-varx_lag_order:],
         steps=len(test),
-        exog_future=test_varx_exog[varx_exog].values,
+        exog_future=test_varx_exog.values if varx_exog else None,
     )
     varx_forecast = pd.DataFrame(varx_forecast_values, index=test.index, columns=varx_endog)
 
