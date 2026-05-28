@@ -906,24 +906,38 @@ elif page == "Residual Diagnostics":
     st.subheader("Residual Diagnostics")
     st.markdown(
         """
+        This page uses the **active interactive model specification**, not a fixed precomputed baseline.
+        The controls below share the same state as the Model Architecture page, so changing the model type,
+        variables, lag order, split date, or exogenous controls changes the residual diagnostics.
+
         Autocorrelation diagnostics ignore lag 0 because a series is always perfectly correlated with itself at lag 0.
         Cross-correlation between different residual equations includes lag 0 because contemporaneous residual dependence is meaningful.
         """
     )
-    model_label = st.radio("Model", ["VAR", "VARX"], horizontal=True)
-    baseline = baseline_residual_run(model_label)
-    residuals = dataframe_from_json(baseline["residuals"])
+    active_run, _ = interactive_model_control_form(
+        "architecture_interactive",
+        "Active Model for Residual Diagnostics",
+    )
+    if active_run is None:
+        st.stop()
+    residuals = active_run.residuals
+    model_label = active_run.model_type
+    st.caption(
+        f"Active {model_label}: endogenous `{', '.join(active_run.endog)}`; "
+        f"exogenous `{', '.join(active_run.exog) if active_run.exog else 'none'}`; "
+        f"lag `{active_run.lag_order}`; train through `{active_run.train.index.max().date()}`."
+    )
     c1, c2, c3 = st.columns(3)
-    c1.metric("Stable", "Yes" if baseline["stable"] else "No")
-    c2.metric("Portmanteau p-value", f"{baseline['whiteness_p']:.4g}" if baseline["whiteness_p"] is not None else "n/a")
-    c3.metric("Normality p-value", f"{baseline['normality_p']:.4g}" if baseline["normality_p"] is not None else "n/a")
-    if baseline["whiteness_p"] is not None and baseline["whiteness_p"] < 0.05:
+    c1.metric("Stable", "Yes" if active_run.stable else "No")
+    c2.metric("Portmanteau p-value", f"{active_run.whiteness_p_value:.4g}" if active_run.whiteness_p_value is not None else "n/a")
+    c3.metric("Normality p-value", f"{active_run.normality_p_value:.4g}" if active_run.normality_p_value is not None else "n/a")
+    if active_run.whiteness_p_value is not None and active_run.whiteness_p_value < 0.05:
         st.warning(
             "System-level Portmanteau whiteness is rejected. Equation-level Ljung-Box/DW/ACF diagnostics may look acceptable, "
             "but the residual system is not perfectly white; forecasts, IRFs, and FEVD should be interpreted with caution."
         )
     st.plotly_chart(plot_time_series(residuals, list(residuals.columns), f"{model_label} Residual Time Series"), width="stretch", key="resid_ts")
-    equation = st.selectbox("Residual equation", list(residuals.columns))
+    equation = st.selectbox("Residual equation", list(residuals.columns), key=f"resid_equation_{model_label}")
     st.plotly_chart(plot_acf(acf_values(residuals[equation]), equation), width="stretch", key="resid_acf")
     st.dataframe(round_numeric(residual_test_table(residuals)), width="stretch", hide_index=True)
 
@@ -954,10 +968,16 @@ elif page == "Residual Diagnostics":
         "Non-normal and heteroskedastic residuals are common in macroeconomic data, especially around 2008 and COVID. "
         "They do not automatically invalidate point forecasts, but they weaken classical p-values and confidence intervals."
     )
-    norm_table = data["var_norm"] if model_label == "VAR" else data["varx_norm"]
-    het_table = data["var_het"] if model_label == "VAR" else data["varx_het"]
-    st.dataframe(test_table(norm_table, "Jarque-Bera/system normality p-value > 0.05 is preferred"), width="stretch", hide_index=True)
-    st.dataframe(test_table(het_table, "ARCH/Breusch-Pagan/White p-values > 0.05 are preferred for homoskedastic residuals"), width="stretch", hide_index=True)
+    st.dataframe(
+        test_table(residual_normality_table(residuals), "Jarque-Bera p-value > 0.05 is preferred for approximate normal equation residuals"),
+        width="stretch",
+        hide_index=True,
+    )
+    st.dataframe(
+        test_table(residual_test_table(residuals)[["equation", "test", "Acceptable if", "arch_lm_p_value"]], "ARCH-LM p-value > 0.05 is preferred if residual volatility is homoskedastic"),
+        width="stretch",
+        hide_index=True,
+    )
 
 elif page == "Significance Analysis and Granger Causality":
     st.subheader("Part A: Parameter Significance Analysis")
