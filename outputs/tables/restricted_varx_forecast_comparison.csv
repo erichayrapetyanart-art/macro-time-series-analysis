@@ -1,0 +1,5 @@
+model_type,restricted_model,variable,baseline_RMSE,restricted_RMSE,RMSE_change_restricted_minus_baseline,restricted_better_RMSE,baseline_MAE,restricted_MAE,MAE_change_restricted_minus_baseline,restricted_better_MAE,restricted_relative_RMSE_vs_naive,restricted_directional_accuracy,Acceptable if
+VARX,Restricted_VARX_block_parsimony,INF,0.192,0.184,-0.008,True,0.1393,0.1325,-0.0068,True,0.9772,0.6389,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VARX,Restricted_VARX_block_parsimony,UNRATE,0.9043,0.8125,-0.0918,True,0.8582,0.7738,-0.0844,True,1.1309,0.5833,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VARX,Restricted_VARX_block_parsimony,INDPRO_GROWTH,0.6539,0.6507,-0.0033,True,0.4952,0.4908,-0.0043,True,1.1061,0.8333,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VARX,Restricted_VARX_block_parsimony,M2_GROWTH,0.2848,0.2855,0.0008,False,0.2509,0.2502,-0.0008,True,0.2443,0.6111,restricted model should preserve or improve RMSE/MAE with fewer parameters

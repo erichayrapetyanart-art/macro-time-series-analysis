@@ -1,0 +1,6 @@
+model_type,restricted_model,variable,baseline_RMSE,restricted_RMSE,RMSE_change_restricted_minus_baseline,restricted_better_RMSE,baseline_MAE,restricted_MAE,MAE_change_restricted_minus_baseline,restricted_better_MAE,restricted_relative_RMSE_vs_naive,restricted_directional_accuracy,Acceptable if
+VAR,Restricted_VAR_block_parsimony,INF,0.176,0.1785,0.0025,False,0.123,0.1244,0.0015,False,0.948,0.6944,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VAR,Restricted_VAR_block_parsimony,FEDFUNDS,0.2219,0.2318,0.0098,False,0.1804,0.1879,0.0075,False,0.3662,0.7143,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VAR,Restricted_VAR_block_parsimony,UNRATE,0.3388,0.3427,0.0039,False,0.286,0.2886,0.0026,False,0.4771,0.5417,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VAR,Restricted_VAR_block_parsimony,INDPRO_GROWTH,0.5778,0.5806,0.0028,False,0.467,0.4683,0.0013,False,0.987,0.8889,restricted model should preserve or improve RMSE/MAE with fewer parameters
+VAR,Restricted_VAR_block_parsimony,SENTIMENT_CHANGE,4.331,4.3225,-0.0085,True,3.4629,3.4575,-0.0054,True,0.9064,0.6111,restricted model should preserve or improve RMSE/MAE with fewer parameters

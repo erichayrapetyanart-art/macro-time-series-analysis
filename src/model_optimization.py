@@ -941,6 +941,83 @@ def compact_stationarity_context(raw: pd.DataFrame, model: pd.DataFrame) -> dict
     }
 
 
+def restricted_context_section() -> str:
+    paths = {
+        "var_metrics": TABLE_DIR / "restricted_var_metrics.csv",
+        "var_restrictions": TABLE_DIR / "restricted_var_restrictions.csv",
+        "var_forecasts": TABLE_DIR / "restricted_var_forecast_comparison.csv",
+        "varx_metrics": TABLE_DIR / "restricted_varx_metrics.csv",
+        "varx_restrictions": TABLE_DIR / "restricted_varx_restrictions.csv",
+        "varx_forecasts": TABLE_DIR / "restricted_varx_forecast_comparison.csv",
+    }
+    if not all(path.exists() for path in paths.values()):
+        return """## 7. Restricted VAR/VARX Parsimony Robustness
+
+Restricted-model outputs were not found. Run `.venv/bin/python -m src.restricted_models` after model optimization to generate this robustness layer.
+"""
+
+    label_columns = [
+        "variable",
+        "target",
+        "source",
+        "response",
+        "shock",
+        "equation",
+        "parameter",
+        "source_variable",
+        "source_residual",
+        "target_residual",
+        "endogenous_variables",
+        "exogenous_variables",
+    ]
+    read_options = {
+        "keep_default_na": False,
+        "na_values": [""],
+        "dtype": {column: "string" for column in label_columns},
+    }
+    var_metrics = pd.read_csv(paths["var_metrics"], **read_options)
+    var_restrictions = pd.read_csv(paths["var_restrictions"], **read_options)
+    var_forecasts = pd.read_csv(paths["var_forecasts"], **read_options)
+    varx_metrics = pd.read_csv(paths["varx_metrics"], **read_options)
+    varx_restrictions = pd.read_csv(paths["varx_restrictions"], **read_options)
+    varx_forecasts = pd.read_csv(paths["varx_forecasts"], **read_options)
+    var_imposed = var_restrictions.loc[var_restrictions["imposed"].astype(bool)]
+    varx_imposed = varx_restrictions.loc[varx_restrictions["imposed"].astype(bool)]
+
+    return f"""## 7. Restricted VAR/VARX Parsimony Robustness
+
+Restricted models were added only as robustness checks. They are not automatic replacements for the official unrestricted baselines. Restrictions remove whole lag blocks only when the source block lacks Granger/predictive evidence, is jointly insignificant in the equation-level OLS regression, has weak HC3/HAC robust lag-level evidence, and is not protected by economic logic. Own lags, the central FEDFUNDS policy channel, INF -> FEDFUNDS policy-reaction logic, and the UNRATE/INDPRO_GROWTH real-side pair are retained conservatively.
+
+Restricted VAR summary:
+
+{markdown_table(var_metrics)}
+
+Restricted VAR block restrictions imposed:
+
+{markdown_table(var_imposed, cols=['equation', 'source_variable', 'removed_parameters', 'granger_p_value', 'classical_block_f_p_value', 'min_hc3_p_value_in_block', 'min_hac_p_value_in_block', 'reason'])}
+
+Restricted VAR forecast comparison:
+
+{markdown_table(var_forecasts)}
+
+Restricted VAR interpretation: the restricted VAR is a useful parsimonious alternative if it preserves diagnostics and forecast accuracy, but the unrestricted VAR remains the official policy-interpretation baseline because it preserves complete dynamic channels for IRF/FEVD analysis.
+
+Restricted VARX summary:
+
+{markdown_table(varx_metrics)}
+
+Restricted VARX block restrictions imposed:
+
+{markdown_table(varx_imposed, cols=['equation', 'source_variable', 'removed_parameters', 'granger_p_value', 'classical_block_f_p_value', 'min_hc3_p_value_in_block', 'min_hac_p_value_in_block', 'reason'])}
+
+Restricted VARX forecast comparison:
+
+{markdown_table(varx_forecasts)}
+
+Restricted VARX interpretation: the restricted VARX is a parsimonious conditional-forecasting robustness check. Exogenous FEDFUNDS and SENTIMENT_CHANGE are retained for scenario design, even when some individual coefficients are weak.
+"""
+
+
 def write_context(
     raw: pd.DataFrame,
     model: pd.DataFrame,
@@ -987,6 +1064,7 @@ def write_context(
     var_better_inf = safe_float(var_forecast_metrics.loc[var_forecast_metrics["variable"] == "INF", "RMSE"].iloc[0])
     varx_better_inf = safe_float(varx_forecast_metrics.loc[varx_forecast_metrics["variable"] == "INF", "RMSE"].iloc[0])
     forecast_winner = "VAR" if var_better_inf <= varx_better_inf else "VARX"
+    restricted_section = restricted_context_section()
 
     text = f"""# Project Results Context: Optimized VAR / VARX Macroeconomic Time-Series Project
 
@@ -1250,7 +1328,9 @@ Multi-horizon inflation forecast comparison:
 
 Forecast conclusion: among the selected econometric models, {forecast_winner} has the lower optimized inflation RMSE ({min(var_better_inf, varx_better_inf):.4f}). For inflation specifically, selected VAR RMSE is about {var_better_inf:.3f}, the no-leak naive RMSE is about 0.188, and selected VARX RMSE is about {varx_better_inf:.3f}. These are optimized selected-model recursive holdout metrics. They differ from the all-benchmark one-step/direct forecast table, where the VAR RMSE can appear around 0.199 because the forecast protocol is different. Ridge may be best for pure one-step prediction, but it does not provide Granger causality, IRF, FEVD, Cholesky identification, or structural macroeconomic transmission interpretation. VAR is the main policy-interpretation model; VARX remains useful for conditional policy/scenario forecasting even when it is not the strongest inflation forecaster.
 
-## 7. Main Economic Conclusions
+{restricted_section}
+
+## 8. Main Economic Conclusions
 
 - Inflation dynamics: inflation is forecast using its own lagged dynamics plus policy, labor-market, production, money, and sentiment channels. Granger-significant relationships above show which variables have predictive content in the optimized system.
 - FEDFUNDS predictive content: Granger results show FEDFUNDS predicts UNRATE and INDPRO_GROWTH more strongly than it predicts inflation directly. Inflation predicting FEDFUNDS is consistent with a policy-reaction function.
@@ -1260,7 +1340,7 @@ Forecast conclusion: among the selected econometric models, {forecast_winner} ha
 - FEVD: inflation forecast-error variance is mostly own inflation shocks. FEDFUNDS contributes around 3.8% by horizons 12 and 24, so monetary policy is present but not dominant in FEVD.
 - VAR vs VARX: VAR is better for policy interpretation because it supports Granger causality, IRF, FEVD, and endogenous feedback. VARX is better for conditional/scenario forecasting when externally supplied FEDFUNDS and sentiment paths are substantively meaningful, but it is weaker for selected inflation forecasting.
 
-## 8. Weaknesses and Warnings
+## 9. Weaknesses and Warnings
 
 - Residual autocorrelation: macroeconomic VAR residuals are rarely perfectly white. Equation-level diagnostics are mostly acceptable, but system-level Portmanteau whiteness rejects for both selected VAR and VARX.
 - Non-normality: Jarque-Bera/system normality rejects strongly because crisis periods create fat tails. This affects classical p-values and confidence intervals more than point forecasts.
@@ -1269,9 +1349,10 @@ Forecast conclusion: among the selected econometric models, {forecast_winner} ha
 - Cholesky ordering: VAR IRFs depend on recursive identification and variable ordering. Short-run responses are conditional, not automatic causal truth.
 - Price puzzle: if inflation rises after a positive FEDFUNDS shock, discuss endogenous policy reaction, omitted expectations/commodity channels, and identification limitations.
 - VARX limitation: scenario responses condition on imposed exogenous paths and are not standard structural IRFs.
+- Restricted-model limitation: block restrictions improve parsimony but are still data-driven. They are robustness checks, not evidence that excluded channels are structurally zero.
 - Data limitation: monthly U.S. macro data contain regime shifts from 2008 and COVID; results may be sensitive to crisis dummy treatment and train/test split.
 
-## 9. Files Produced
+## 10. Files Produced
 
 Key optimization outputs:
 
@@ -1300,6 +1381,14 @@ Key optimization outputs:
 - `outputs/tables/optimized_final_varx_residual_ccf.csv`
 - `outputs/tables/optimized_final_varx_granger.csv`
 - `outputs/tables/optimized_final_varx_scenario_response.csv`
+- `outputs/tables/restricted_var_restrictions.csv`
+- `outputs/tables/restricted_var_metrics.csv`
+- `outputs/tables/restricted_var_residual_diagnostics.csv`
+- `outputs/tables/restricted_var_forecast_comparison.csv`
+- `outputs/tables/restricted_varx_restrictions.csv`
+- `outputs/tables/restricted_varx_metrics.csv`
+- `outputs/tables/restricted_varx_residual_diagnostics.csv`
+- `outputs/tables/restricted_varx_forecast_comparison.csv`
 
 Context file:
 
@@ -1390,6 +1479,13 @@ def main() -> None:
     lag_best.to_csv(TABLE_DIR / "optimized_lag_selection_best_by_criterion.csv", index=False)
     crisis.to_csv(TABLE_DIR / "optimized_crisis_dummy_search.csv", index=False)
     final_specs.to_csv(TABLE_DIR / "optimized_final_model_specs.csv", index=False)
+
+    try:
+        from src.restricted_models import run_all as run_restricted_models
+
+        run_restricted_models()
+    except Exception as exc:
+        print(f"Restricted-model robustness generation failed: {exc}", flush=True)
 
     write_context(raw, model, scored, lag_best, crisis, final_var, final_varx, var_tables, varx_tables)
 

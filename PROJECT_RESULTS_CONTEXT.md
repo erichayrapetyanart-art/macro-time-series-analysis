@@ -297,8 +297,8 @@ Residual cross-correlation summary, including lag 0 for cross-equation pairs:
 | INDPRO_GROWTH    | FEDFUNDS         | -9                 | -0.1713            | 0.1713      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 | FEDFUNDS         | INDPRO_GROWTH    | 9                  | -0.1713            | 0.1713      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 | INF              | INF              | 11                 | 0.1596             | 0.1596      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
-| FEDFUNDS         | UNRATE           | 9                  | 0.1271             | 0.1271      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 | UNRATE           | FEDFUNDS         | -9                 | 0.1271             | 0.1271      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
+| FEDFUNDS         | UNRATE           | 9                  | 0.1271             | 0.1271      | cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0 |
 
 Residual normality:
 
@@ -397,26 +397,26 @@ Inflation FEVD summary:
 
 | response | horizon | shock            | variance_share |
 | -------- | ------- | ---------------- | -------------- |
-| inf      | 1       | INF              | 1.0            |
-| inf      | 1       | FEDFUNDS         | 0.0            |
-| inf      | 1       | UNRATE           | 0.0            |
-| inf      | 1       | INDPRO_GROWTH    | 0.0            |
-| inf      | 1       | SENTIMENT_CHANGE | 0.0            |
-| inf      | 6       | INF              | 0.9105         |
-| inf      | 6       | FEDFUNDS         | 0.0387         |
-| inf      | 6       | INDPRO_GROWTH    | 0.0339         |
-| inf      | 6       | SENTIMENT_CHANGE | 0.0131         |
-| inf      | 6       | UNRATE           | 0.0038         |
-| inf      | 12      | INF              | 0.9053         |
-| inf      | 12      | FEDFUNDS         | 0.0384         |
-| inf      | 12      | INDPRO_GROWTH    | 0.036          |
-| inf      | 12      | SENTIMENT_CHANGE | 0.0154         |
-| inf      | 12      | UNRATE           | 0.0048         |
-| inf      | 24      | INF              | 0.9049         |
-| inf      | 24      | FEDFUNDS         | 0.0384         |
-| inf      | 24      | INDPRO_GROWTH    | 0.0361         |
-| inf      | 24      | SENTIMENT_CHANGE | 0.0155         |
-| inf      | 24      | UNRATE           | 0.005          |
+| INF      | 1       | INF              | 1.0            |
+| INF      | 1       | FEDFUNDS         | 0.0            |
+| INF      | 1       | UNRATE           | 0.0            |
+| INF      | 1       | INDPRO_GROWTH    | 0.0            |
+| INF      | 1       | SENTIMENT_CHANGE | 0.0            |
+| INF      | 6       | INF              | 0.9105         |
+| INF      | 6       | FEDFUNDS         | 0.0387         |
+| INF      | 6       | INDPRO_GROWTH    | 0.0339         |
+| INF      | 6       | SENTIMENT_CHANGE | 0.0131         |
+| INF      | 6       | UNRATE           | 0.0038         |
+| INF      | 12      | INF              | 0.9053         |
+| INF      | 12      | FEDFUNDS         | 0.0384         |
+| INF      | 12      | INDPRO_GROWTH    | 0.036          |
+| INF      | 12      | SENTIMENT_CHANGE | 0.0154         |
+| INF      | 12      | UNRATE           | 0.0048         |
+| INF      | 24      | INF              | 0.9049         |
+| INF      | 24      | FEDFUNDS         | 0.0384         |
+| INF      | 24      | INDPRO_GROWTH    | 0.0361         |
+| INF      | 24      | SENTIMENT_CHANGE | 0.0155         |
+| INF      | 24      | UNRATE           | 0.005          |
 
 FEVD conclusion: inflation forecast-error variance is dominated by inflation's own innovations. At horizons 12 and 24, INF own-shock share is about 90%, while FEDFUNDS contributes only about 3.8%. Monetary-policy shocks contribute a smaller but nonzero share; they do not explain most inflation variation.
 
@@ -637,7 +637,66 @@ Multi-horizon inflation forecast comparison:
 
 Forecast conclusion: among the selected econometric models, VAR has the lower optimized inflation RMSE (0.1760). For inflation specifically, selected VAR RMSE is about 0.176, the no-leak naive RMSE is about 0.188, and selected VARX RMSE is about 0.192. These are optimized selected-model recursive holdout metrics. They differ from the all-benchmark one-step/direct forecast table, where the VAR RMSE can appear around 0.199 because the forecast protocol is different. Ridge may be best for pure one-step prediction, but it does not provide Granger causality, IRF, FEVD, Cholesky identification, or structural macroeconomic transmission interpretation. VAR is the main policy-interpretation model; VARX remains useful for conditional policy/scenario forecasting even when it is not the strongest inflation forecaster.
 
-## 7. Main Economic Conclusions
+## 7. Restricted VAR/VARX Parsimony Robustness
+
+Restricted models were added only as robustness checks. They are not automatic replacements for the official unrestricted baselines. Restrictions remove whole lag blocks only when the source block lacks Granger/predictive evidence, is jointly insignificant in the equation-level OLS regression, has weak HC3/HAC robust lag-level evidence, and is not protected by economic logic. Own lags, the central FEDFUNDS policy channel, INF -> FEDFUNDS policy-reaction logic, and the UNRATE/INDPRO_GROWTH real-side pair are retained conservatively.
+
+Restricted VAR summary:
+
+| model_type | restricted_model               | baseline_model          | endogenous_variables                                   | exogenous_variables | lag_order | n_train_effective | n_test | k_endogenous | k_exogenous | baseline_total_parameters | restricted_total_parameters | parameters_removed | parameter_reduction_share | remaining_parameters_per_equation                                          | stable | max_companion_eigenvalue_modulus | inflation_RMSE | inflation_MAE | baseline_inflation_RMSE | inflation_RMSE_change_restricted_minus_baseline | mean_RMSE | mean_MAE | min_ljung_box_p_value | baseline_min_ljung_box_p_value | mean_ljung_box_p_value | max_acf_exceedance_share | baseline_acf_exceedance_share | max_abs_cross_ccf_including_lag0 | baseline_max_abs_cross_ccf | min_jarque_bera_p_value | baseline_min_jarque_bera_p_value | min_arch_lm_p_value | baseline_min_arch_lm_p_value | portmanteau_p_value_approx | baseline_portmanteau_whiteness_p_value | interpretation                  | Acceptable if                                                                                                   |
+| ---------- | ------------------------------ | ----------------------- | ------------------------------------------------------ | ------------------- | --------- | ----------------- | ------ | ------------ | ----------- | ------------------------- | --------------------------- | ------------------ | ------------------------- | -------------------------------------------------------------------------- | ------ | -------------------------------- | -------------- | ------------- | ----------------------- | ----------------------------------------------- | --------- | -------- | --------------------- | ------------------------------ | ---------------------- | ------------------------ | ----------------------------- | -------------------------------- | -------------------------- | ----------------------- | -------------------------------- | ------------------- | ---------------------------- | -------------------------- | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| VAR        | Restricted_VAR_block_parsimony | VAR_core_plus_sentiment | INF, FEDFUNDS, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE | none                | 5         | 334               | 36     | 5            | 0           | 130.0                     | 100                         | 30                 | 0.2308                    | INF: 11; FEDFUNDS: 21; UNRATE: 16; INDPRO_GROWTH: 26; SENTIMENT_CHANGE: 26 | True   | 0.9517                           | 0.1785         | 0.1244        | 0.176                   | 0.0025                                          | 1.1312    | 0.9054   | 0.3683                | 0.1852                         | 0.616                  | 0.1667                   | 0.0667                        | 0.7331                           | 0.7443                     | 0.0                     | 0.0                              | 0.0                 | 0.0009                       | 0.2771                     | 0.0                                    | useful parsimonious alternative | restricted model is stable, materially more parsimonious, and does not worsen forecasts or residual diagnostics |
+
+Restricted VAR block restrictions imposed:
+
+| equation | source_variable  | removed_parameters | granger_p_value | classical_block_f_p_value | min_hc3_p_value_in_block | min_hac_p_value_in_block | reason                                                                                                      |
+| -------- | ---------------- | ------------------ | --------------- | ------------------------- | ------------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| INF      | UNRATE           | 5                  | 0.375           | 0.3769                    | 0.4328                   | 0.1254                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| INF      | INDPRO_GROWTH    | 5                  | 0.1668          | 0.1696                    | 0.3049                   | 0.1941                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| INF      | SENTIMENT_CHANGE | 5                  | 0.4293          | 0.4307                    | 0.1651                   | 0.1393                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| FEDFUNDS | SENTIMENT_CHANGE | 5                  | 0.5835          | 0.584                     | 0.3288                   | 0.3403                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| UNRATE   | INF              | 5                  | 0.7867          | 0.7864                    | 0.2553                   | 0.1899                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| UNRATE   | SENTIMENT_CHANGE | 5                  | 0.2822          | 0.2845                    | 0.2924                   | 0.0724                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+
+Restricted VAR forecast comparison:
+
+| model_type | restricted_model               | variable         | baseline_RMSE | restricted_RMSE | RMSE_change_restricted_minus_baseline | restricted_better_RMSE | baseline_MAE | restricted_MAE | MAE_change_restricted_minus_baseline | restricted_better_MAE | restricted_relative_RMSE_vs_naive | restricted_directional_accuracy | Acceptable if                                                              |
+| ---------- | ------------------------------ | ---------------- | ------------- | --------------- | ------------------------------------- | ---------------------- | ------------ | -------------- | ------------------------------------ | --------------------- | --------------------------------- | ------------------------------- | -------------------------------------------------------------------------- |
+| VAR        | Restricted_VAR_block_parsimony | INF              | 0.176         | 0.1785          | 0.0025                                | False                  | 0.123        | 0.1244         | 0.0015                               | False                 | 0.948                             | 0.6944                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VAR        | Restricted_VAR_block_parsimony | FEDFUNDS         | 0.2219        | 0.2318          | 0.0098                                | False                  | 0.1804       | 0.1879         | 0.0075                               | False                 | 0.3662                            | 0.7143                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VAR        | Restricted_VAR_block_parsimony | UNRATE           | 0.3388        | 0.3427          | 0.0039                                | False                  | 0.286        | 0.2886         | 0.0026                               | False                 | 0.4771                            | 0.5417                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VAR        | Restricted_VAR_block_parsimony | INDPRO_GROWTH    | 0.5778        | 0.5806          | 0.0028                                | False                  | 0.467        | 0.4683         | 0.0013                               | False                 | 0.987                             | 0.8889                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VAR        | Restricted_VAR_block_parsimony | SENTIMENT_CHANGE | 4.331         | 4.3225          | -0.0085                               | True                   | 3.4629       | 3.4575         | -0.0054                              | True                  | 0.9064                            | 0.6111                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+
+Restricted VAR interpretation: the restricted VAR is a useful parsimonious alternative if it preserves diagnostics and forecast accuracy, but the unrestricted VAR remains the official policy-interpretation baseline because it preserves complete dynamic channels for IRF/FEVD analysis.
+
+Restricted VARX summary:
+
+| model_type | restricted_model                | baseline_model               | endogenous_variables                  | exogenous_variables        | lag_order | n_train_effective | n_test | k_endogenous | k_exogenous | baseline_total_parameters | restricted_total_parameters | parameters_removed | parameter_reduction_share | remaining_parameters_per_equation                     | stable | max_companion_eigenvalue_modulus | inflation_RMSE | inflation_MAE | baseline_inflation_RMSE | inflation_RMSE_change_restricted_minus_baseline | mean_RMSE | mean_MAE | min_ljung_box_p_value | baseline_min_ljung_box_p_value | mean_ljung_box_p_value | max_acf_exceedance_share | baseline_acf_exceedance_share | max_abs_cross_ccf_including_lag0 | baseline_max_abs_cross_ccf | min_jarque_bera_p_value | baseline_min_jarque_bera_p_value | min_arch_lm_p_value | baseline_min_arch_lm_p_value | portmanteau_p_value_approx | baseline_portmanteau_whiteness_p_value | interpretation                  | Acceptable if                                                                                                   |
+| ---------- | ------------------------------- | ---------------------------- | ------------------------------------- | -------------------------- | --------- | ----------------- | ------ | ------------ | ----------- | ------------------------- | --------------------------- | ------------------ | ------------------------- | ----------------------------------------------------- | ------ | -------------------------------- | -------------- | ------------- | ----------------------- | ----------------------------------------------- | --------- | -------- | --------------------- | ------------------------------ | ---------------------- | ------------------------ | ----------------------------- | -------------------------------- | -------------------------- | ----------------------- | -------------------------------- | ------------------- | ---------------------------- | -------------------------- | -------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| VARX       | Restricted_VARX_block_parsimony | VARX_A_policy_sentiment_exog | INF, UNRATE, INDPRO_GROWTH, M2_GROWTH | FEDFUNDS, SENTIMENT_CHANGE | 4         | 335               | 36     | 4            | 2           | 76.0                      | 64                          | 12                 | 0.1579                    | INF: 11; UNRATE: 15; INDPRO_GROWTH: 19; M2_GROWTH: 19 | True   | 0.9486                           | 0.184          | 0.1325        | 0.192                   | -0.008                                          | 0.4832    | 0.4118   | 0.0614                | 0.0614                         | 0.3611                 | 0.1667                   | 0.0625                        | 0.7238                           | 0.7347                     | 0.0                     | 0.0                              | 0.0                 | 0.0                          | 0.0037                     | 0.0                                    | useful parsimonious alternative | restricted model is stable, materially more parsimonious, and does not worsen forecasts or residual diagnostics |
+
+Restricted VARX block restrictions imposed:
+
+| equation | source_variable | removed_parameters | granger_p_value | classical_block_f_p_value | min_hc3_p_value_in_block | min_hac_p_value_in_block | reason                                                                                                      |
+| -------- | --------------- | ------------------ | --------------- | ------------------------- | ------------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| INF      | UNRATE          | 4                  | 0.3853          | 0.3543                    | 0.3818                   | 0.0747                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| INF      | INDPRO_GROWTH   | 4                  | 0.0938          | 0.0973                    | 0.3025                   | 0.2149                   | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+| UNRATE   | INF             | 4                  | 0.2086          | 0.051                     | 0.2207                   | 0.133                    | removed because the source block does not show Granger/block evidence and robust lag-level evidence is weak |
+
+Restricted VARX forecast comparison:
+
+| model_type | restricted_model                | variable      | baseline_RMSE | restricted_RMSE | RMSE_change_restricted_minus_baseline | restricted_better_RMSE | baseline_MAE | restricted_MAE | MAE_change_restricted_minus_baseline | restricted_better_MAE | restricted_relative_RMSE_vs_naive | restricted_directional_accuracy | Acceptable if                                                              |
+| ---------- | ------------------------------- | ------------- | ------------- | --------------- | ------------------------------------- | ---------------------- | ------------ | -------------- | ------------------------------------ | --------------------- | --------------------------------- | ------------------------------- | -------------------------------------------------------------------------- |
+| VARX       | Restricted_VARX_block_parsimony | INF           | 0.192         | 0.184           | -0.008                                | True                   | 0.1393       | 0.1325         | -0.0068                              | True                  | 0.9772                            | 0.6389                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VARX       | Restricted_VARX_block_parsimony | UNRATE        | 0.9043        | 0.8125          | -0.0918                               | True                   | 0.8582       | 0.7738         | -0.0844                              | True                  | 1.1309                            | 0.5833                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VARX       | Restricted_VARX_block_parsimony | INDPRO_GROWTH | 0.6539        | 0.6507          | -0.0033                               | True                   | 0.4952       | 0.4908         | -0.0043                              | True                  | 1.1061                            | 0.8333                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+| VARX       | Restricted_VARX_block_parsimony | M2_GROWTH     | 0.2848        | 0.2855          | 0.0008                                | False                  | 0.2509       | 0.2502         | -0.0008                              | True                  | 0.2443                            | 0.6111                          | restricted model should preserve or improve RMSE/MAE with fewer parameters |
+
+Restricted VARX interpretation: the restricted VARX is a parsimonious conditional-forecasting robustness check. Exogenous FEDFUNDS and SENTIMENT_CHANGE are retained for scenario design, even when some individual coefficients are weak.
+
+
+## 8. Main Economic Conclusions
 
 - Inflation dynamics: inflation is forecast using its own lagged dynamics plus policy, labor-market, production, money, and sentiment channels. Granger-significant relationships above show which variables have predictive content in the optimized system.
 - FEDFUNDS predictive content: Granger results show FEDFUNDS predicts UNRATE and INDPRO_GROWTH more strongly than it predicts inflation directly. Inflation predicting FEDFUNDS is consistent with a policy-reaction function.
@@ -647,7 +706,7 @@ Forecast conclusion: among the selected econometric models, VAR has the lower op
 - FEVD: inflation forecast-error variance is mostly own inflation shocks. FEDFUNDS contributes around 3.8% by horizons 12 and 24, so monetary policy is present but not dominant in FEVD.
 - VAR vs VARX: VAR is better for policy interpretation because it supports Granger causality, IRF, FEVD, and endogenous feedback. VARX is better for conditional/scenario forecasting when externally supplied FEDFUNDS and sentiment paths are substantively meaningful, but it is weaker for selected inflation forecasting.
 
-## 8. Weaknesses and Warnings
+## 9. Weaknesses and Warnings
 
 - Residual autocorrelation: macroeconomic VAR residuals are rarely perfectly white. Equation-level diagnostics are mostly acceptable, but system-level Portmanteau whiteness rejects for both selected VAR and VARX.
 - Non-normality: Jarque-Bera/system normality rejects strongly because crisis periods create fat tails. This affects classical p-values and confidence intervals more than point forecasts.
@@ -656,9 +715,10 @@ Forecast conclusion: among the selected econometric models, VAR has the lower op
 - Cholesky ordering: VAR IRFs depend on recursive identification and variable ordering. Short-run responses are conditional, not automatic causal truth.
 - Price puzzle: if inflation rises after a positive FEDFUNDS shock, discuss endogenous policy reaction, omitted expectations/commodity channels, and identification limitations.
 - VARX limitation: scenario responses condition on imposed exogenous paths and are not standard structural IRFs.
+- Restricted-model limitation: block restrictions improve parsimony but are still data-driven. They are robustness checks, not evidence that excluded channels are structurally zero.
 - Data limitation: monthly U.S. macro data contain regime shifts from 2008 and COVID; results may be sensitive to crisis dummy treatment and train/test split.
 
-## 9. Files Produced
+## 10. Files Produced
 
 Key optimization outputs:
 
@@ -687,6 +747,14 @@ Key optimization outputs:
 - `outputs/tables/optimized_final_varx_residual_ccf.csv`
 - `outputs/tables/optimized_final_varx_granger.csv`
 - `outputs/tables/optimized_final_varx_scenario_response.csv`
+- `outputs/tables/restricted_var_restrictions.csv`
+- `outputs/tables/restricted_var_metrics.csv`
+- `outputs/tables/restricted_var_residual_diagnostics.csv`
+- `outputs/tables/restricted_var_forecast_comparison.csv`
+- `outputs/tables/restricted_varx_restrictions.csv`
+- `outputs/tables/restricted_varx_metrics.csv`
+- `outputs/tables/restricted_varx_residual_diagnostics.csv`
+- `outputs/tables/restricted_varx_forecast_comparison.csv`
 
 Context file:
 

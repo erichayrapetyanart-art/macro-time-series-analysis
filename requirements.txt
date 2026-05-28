@@ -2,10 +2,13 @@ pandas
 numpy
 matplotlib
 statsmodels
+scipy
 fredapi
 jupyter
 notebook
 ipykernel
+ipython
+nbformat
 plotly
 seaborn
 scikit-learn

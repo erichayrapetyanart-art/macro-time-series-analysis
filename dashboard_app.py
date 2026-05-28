@@ -157,7 +157,7 @@ def is_baseline_configuration(
 
 
 @st.cache_data
-def load_project_data() -> dict[str, pd.DataFrame]:
+def load_project_data(cache_version: str = "restricted-models-v1") -> dict[str, pd.DataFrame]:
     return load_project_data_uncached()
 
 
@@ -1117,6 +1117,111 @@ elif page == "Robustness":
     if robustness_run is not None:
         st.dataframe(round_numeric(robustness_run.metrics), width="stretch", hide_index=True)
         st.plotly_chart(plot_forecast_run(robustness_run), width="stretch", key="robust_interactive_forecast")
+
+    st.write("Restricted Models / Parsimony Check")
+    st.markdown(
+        """
+        <div class="warn">
+        Restricted VAR and VARX specifications are data-driven robustness checks, not replacements for the official unrestricted baseline.
+        Restrictions remove whole lag blocks only when economic logic, Granger/block tests, and robust significance evidence support parsimony.
+        They should not be interpreted as structural truth.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    restricted_choice = st.radio("Restricted model comparison", ["VAR", "VARX"], horizontal=True)
+    restricted_prefix = "restricted_var" if restricted_choice == "VAR" else "restricted_varx"
+    restricted_metrics = data.get(f"{restricted_prefix}_metrics", pd.DataFrame())
+    restricted_restrictions = data.get(f"{restricted_prefix}_restrictions", pd.DataFrame())
+    restricted_forecasts = data.get(f"{restricted_prefix}_forecasts", pd.DataFrame())
+    restricted_diagnostics = data.get(f"{restricted_prefix}_diagnostics", pd.DataFrame())
+    if restricted_metrics.empty:
+        st.info("Restricted-model outputs are not available. Run `.venv/bin/python -m src.restricted_models` to generate them.")
+    else:
+        st.dataframe(
+            test_table(
+                restricted_metrics,
+                "restricted model should be stable, materially more parsimonious, and not worsen forecast or residual diagnostics",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        first_row = restricted_metrics.iloc[0]
+        if bool(first_row.get("stable", False)) is False:
+            st.warning("The restricted model is not stable. Do not use it for dynamic interpretation.")
+        if pd.notna(first_row.get("portmanteau_p_value_approx")) and float(first_row["portmanteau_p_value_approx"]) < 0.05:
+            st.warning("The restricted model still shows system-level residual dependence by the approximate Portmanteau check.")
+
+    if not restricted_restrictions.empty:
+        imposed_mask = restricted_restrictions["imposed"].astype(str).str.lower().eq("true")
+        imposed = restricted_restrictions.loc[imposed_mask].copy()
+        st.write("Restrictions imposed")
+        if imposed.empty:
+            st.info("No lag-block restrictions were imposed under the controlled rule.")
+        else:
+            st.dataframe(
+                test_table(
+                    imposed,
+                    "blocks should only be removed when Granger, joint block, HC3, HAC, and economic evidence support removal",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+        with st.expander("All retained and removed block decisions"):
+            st.dataframe(
+                test_table(
+                    restricted_restrictions,
+                    "own lags and central policy channels are retained unless restrictions are economically defensible",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+    if not restricted_forecasts.empty:
+        st.write("Forecast comparison: unrestricted baseline vs restricted model")
+        st.dataframe(
+            test_table(
+                restricted_forecasts,
+                "restricted model should preserve or improve RMSE/MAE while using fewer parameters",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        plot_df = restricted_forecasts.melt(
+            id_vars=["variable"],
+            value_vars=["baseline_RMSE", "restricted_RMSE"],
+            var_name="model",
+            value_name="RMSE",
+        )
+        plot_df["model"] = plot_df["model"].str.replace("_RMSE", "", regex=False).str.replace("_", " ").str.title()
+        fig = px.bar(plot_df, x="variable", y="RMSE", color="model", barmode="group", title=f"{restricted_choice}: Baseline vs Restricted RMSE")
+        st.plotly_chart(fig, width="stretch", key=f"{restricted_prefix}_forecast_rmse")
+
+    if not restricted_diagnostics.empty:
+        st.write("Restricted residual diagnostics")
+        equation_diag = restricted_diagnostics.loc[restricted_diagnostics["diagnostic_type"] == "equation_residual"].copy()
+        ccf_diag = restricted_diagnostics.loc[restricted_diagnostics["diagnostic_type"] == "lagged_cross_correlation"].copy()
+        if not equation_diag.empty:
+            st.dataframe(
+                test_table(
+                    equation_diag,
+                    "LB/JB/ARCH p-values > 0.05 are preferred; positive-lag residual ACF exceedances should be limited",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+        if not ccf_diag.empty:
+            st.write("Largest residual cross-correlations, including lag 0 for cross-equation residuals")
+            top_ccf = ccf_diag.sort_values("max_abs_ccf", ascending=False).head(12)
+            st.dataframe(
+                test_table(
+                    top_ccf,
+                    "smaller absolute cross-correlations indicate weaker remaining cross-equation residual dependence",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
     if not data["crisis"].empty:
         st.write("Crisis dummy robustness")
         st.dataframe(test_table(data["crisis"], "lower AIC/BIC/RMSE is better; whiteness p-value > 0.05 is preferred"), width="stretch", hide_index=True)
@@ -1162,6 +1267,7 @@ elif page == "Code quality":
             ["src/diagnostics.py", "stationarity, residual tests, ACF and lagged CCF diagnostics"],
             ["src/forecasting.py", "forecast metrics, ML helpers, official VAR/VARX forecast comparison"],
             ["src/model_optimization.py", "controlled VAR/VARX specification search and context-file generation"],
+            ["src/restricted_models.py", "restricted VAR/VARX parsimony robustness checks"],
             ["src/visualization.py", "Plotly figure builders"],
             ["src/advanced_macro_var_analysis.py", "reproducible academic pipeline and output generation"],
         ],

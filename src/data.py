@@ -56,6 +56,14 @@ def load_project_data() -> dict[str, pd.DataFrame]:
         "optimized_varx_residual_tests": safe_read_csv(TABLE_DIR / "optimized_final_varx_residual_tests.csv"),
         "var_irf_ci": safe_read_csv(TABLE_DIR / "academic_var_irf_confidence_intervals.csv"),
         "cholesky_robustness": safe_read_csv(TABLE_DIR / "academic_cholesky_ordering_robustness.csv"),
+        "restricted_var_restrictions": safe_read_csv(TABLE_DIR / "restricted_var_restrictions.csv"),
+        "restricted_var_metrics": safe_read_csv(TABLE_DIR / "restricted_var_metrics.csv"),
+        "restricted_var_diagnostics": safe_read_csv(TABLE_DIR / "restricted_var_residual_diagnostics.csv"),
+        "restricted_var_forecasts": safe_read_csv(TABLE_DIR / "restricted_var_forecast_comparison.csv"),
+        "restricted_varx_restrictions": safe_read_csv(TABLE_DIR / "restricted_varx_restrictions.csv"),
+        "restricted_varx_metrics": safe_read_csv(TABLE_DIR / "restricted_varx_metrics.csv"),
+        "restricted_varx_diagnostics": safe_read_csv(TABLE_DIR / "restricted_varx_residual_diagnostics.csv"),
+        "restricted_varx_forecasts": safe_read_csv(TABLE_DIR / "restricted_varx_forecast_comparison.csv"),
     }
 
 

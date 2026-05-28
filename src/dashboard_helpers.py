@@ -15,6 +15,21 @@ FIGURE_DIR = BASE_DIR / "outputs" / "figures"
 
 MAX_UI_LAG = 8
 MIN_TEST_OBS = 3
+LABEL_COLUMNS = [
+    "variable",
+    "target",
+    "source",
+    "response",
+    "shock",
+    "equation",
+    "parameter",
+    "source_variable",
+    "source_residual",
+    "target_residual",
+    "endogenous_variables",
+    "exogenous_variables",
+]
+LABEL_DTYPES = {column: "string" for column in LABEL_COLUMNS}
 
 
 @dataclass
@@ -40,17 +55,17 @@ class ModelRun:
 
 
 def read_indexed_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path, parse_dates=["date"], index_col="date")
+    return pd.read_csv(path, parse_dates=["date"], index_col="date", keep_default_na=False, na_values=[""])
 
 
 def read_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path)
+    return pd.read_csv(path, keep_default_na=False, na_values=[""], dtype=LABEL_DTYPES)
 
 
 def safe_read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path)
+    return pd.read_csv(path, keep_default_na=False, na_values=[""], dtype=LABEL_DTYPES)
 
 
 def dataframe_to_json(df: pd.DataFrame) -> str:
