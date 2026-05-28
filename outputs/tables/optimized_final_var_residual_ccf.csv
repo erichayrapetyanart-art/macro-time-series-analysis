@@ -1,0 +1,26 @@
+source_residual,target_residual,lag_of_max_abs_ccf,ccf_at_max_abs_lag,max_abs_ccf,Acceptable if
+INF,INF,11,0.1596138921237508,0.1596138921237508,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,FEDFUNDS,0,0.22935626230079298,0.22935626230079298,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,UNRATE,0,-0.12242370892520342,0.12242370892520342,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,INDPRO_GROWTH,0,0.10579497157918986,0.10579497157918986,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,SENTIMENT_CHANGE,0,-0.09919272794202952,0.09919272794202952,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+FEDFUNDS,INF,0,0.229356262300793,0.229356262300793,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+FEDFUNDS,FEDFUNDS,6,0.12400944365500807,0.12400944365500807,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+FEDFUNDS,UNRATE,9,0.12714804337552996,0.12714804337552996,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+FEDFUNDS,INDPRO_GROWTH,9,-0.17131694082171414,0.17131694082171414,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+FEDFUNDS,SENTIMENT_CHANGE,0,0.20475893605340842,0.20475893605340842,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,INF,0,-0.12242370892520343,0.12242370892520343,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,FEDFUNDS,-9,0.12714804337552998,0.12714804337552998,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,UNRATE,12,0.0951647446945321,0.0951647446945321,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,INDPRO_GROWTH,0,-0.7443222244080064,0.7443222244080064,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,SENTIMENT_CHANGE,0,-0.252820954646593,0.252820954646593,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,INF,0,0.10579497157918988,0.10579497157918988,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,FEDFUNDS,-9,-0.17131694082171417,0.17131694082171417,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,UNRATE,0,-0.7443222244080064,0.7443222244080064,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,INDPRO_GROWTH,10,0.11893837328452671,0.11893837328452671,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,SENTIMENT_CHANGE,0,0.19173096899140138,0.19173096899140138,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+SENTIMENT_CHANGE,INF,0,-0.09919272794202952,0.09919272794202952,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+SENTIMENT_CHANGE,FEDFUNDS,0,0.20475893605340842,0.20475893605340842,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+SENTIMENT_CHANGE,UNRATE,0,-0.25282095464659304,0.25282095464659304,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+SENTIMENT_CHANGE,INDPRO_GROWTH,0,0.19173096899140138,0.19173096899140138,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+SENTIMENT_CHANGE,SENTIMENT_CHANGE,7,-0.051165402575543376,0.051165402575543376,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0

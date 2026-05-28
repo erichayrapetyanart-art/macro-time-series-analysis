@@ -1,0 +1,13 @@
+model_type,source,target,test,p_value,test_statistic,significant_at_5pct,Acceptable if
+VARX,UNRATE,INF,VAR-system Granger causality F-test,0.3527327438026213,1.104831433126447,False,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,INDPRO_GROWTH,INF,VAR-system Granger causality F-test,0.09519476197912152,1.9803824242150614,False,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,M2_GROWTH,INF,VAR-system Granger causality F-test,0.01645045770257619,3.043243226965105,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,INF,UNRATE,VAR-system Granger causality F-test,0.04930053996160434,2.3875530411985344,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,INDPRO_GROWTH,UNRATE,VAR-system Granger causality F-test,0.0009764004008894705,4.660315903979103,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,M2_GROWTH,UNRATE,VAR-system Granger causality F-test,1.5623078155702826e-09,11.948483914279954,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,INF,INDPRO_GROWTH,VAR-system Granger causality F-test,0.0008286082885000641,4.752435084250359,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,UNRATE,INDPRO_GROWTH,VAR-system Granger causality F-test,6.886765120191122e-07,8.651320490918287,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,M2_GROWTH,INDPRO_GROWTH,VAR-system Granger causality F-test,5.4181991603103436e-05,6.266373917699954,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,INF,M2_GROWTH,VAR-system Granger causality F-test,0.00015886581702455527,5.67249302968557,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,UNRATE,M2_GROWTH,VAR-system Granger causality F-test,0.040524395300008134,2.506481551746658,True,"p-value < 0.05 indicates predictive causality, not structural causality"
+VARX,INDPRO_GROWTH,M2_GROWTH,VAR-system Granger causality F-test,0.002151596487754136,4.214621197712004,True,"p-value < 0.05 indicates predictive causality, not structural causality"

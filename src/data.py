@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from src.dashboard_helpers import DATA_DIR, TABLE_DIR, read_csv, read_indexed_csv, safe_read_csv
+
+
+def load_project_data() -> dict[str, pd.DataFrame]:
+    """Load project inputs and precomputed academic outputs used by the dashboard."""
+    return {
+        "raw": read_indexed_csv(DATA_DIR / "raw_fred_macro.csv"),
+        "model": read_indexed_csv(DATA_DIR / "academic_model_data.csv"),
+        "dummies": read_indexed_csv(DATA_DIR / "academic_break_dummies.csv"),
+        "architecture": read_csv(TABLE_DIR / "academic_final_model_architecture.csv"),
+        "ordering": read_csv(TABLE_DIR / "academic_cholesky_ordering.csv"),
+        "variable_dictionary": safe_read_csv(TABLE_DIR / "academic_variable_dictionary.csv"),
+        "cointegration": safe_read_csv(TABLE_DIR / "academic_pairwise_cointegration.csv"),
+        "var_lag_selection": safe_read_csv(TABLE_DIR / "academic_var_lag_selection.csv"),
+        "varx_lag_selection": safe_read_csv(TABLE_DIR / "academic_varx_lag_selection.csv"),
+        "lag_robustness": safe_read_csv(TABLE_DIR / "academic_var_lag_residual_autocorr_robustness.csv"),
+        "ranking": read_csv(TABLE_DIR / "academic_all_model_forecast_ranking.csv"),
+        "econ_forecasts": read_indexed_csv(TABLE_DIR / "academic_econometric_inflation_forecasts.csv"),
+        "ml_forecasts": read_indexed_csv(TABLE_DIR / "academic_ml_inflation_forecasts.csv"),
+        "granger": read_csv(TABLE_DIR / "academic_granger_causality_map.csv"),
+        "raw_adf": read_csv(TABLE_DIR / "academic_raw_adf_tests.csv"),
+        "transformed_adf": read_csv(TABLE_DIR / "academic_transformed_adf_tests.csv"),
+        "var_diag": safe_read_csv(TABLE_DIR / "academic_var_residual_diagnostics.csv"),
+        "varx_diag": safe_read_csv(TABLE_DIR / "academic_varx_residual_diagnostics.csv"),
+        "var_norm": safe_read_csv(TABLE_DIR / "academic_var_residual_normality.csv"),
+        "varx_norm": safe_read_csv(TABLE_DIR / "academic_varx_residual_normality.csv"),
+        "var_het": safe_read_csv(TABLE_DIR / "academic_var_heteroskedasticity_tests.csv"),
+        "varx_het": safe_read_csv(TABLE_DIR / "academic_varx_heteroskedasticity_tests.csv"),
+        "var_sig": safe_read_csv(TABLE_DIR / "academic_var_parameter_significance.csv"),
+        "varx_sig": safe_read_csv(TABLE_DIR / "academic_varx_parameter_significance.csv"),
+        "var_sig_summary": safe_read_csv(TABLE_DIR / "academic_var_parameter_significance_summary.csv"),
+        "varx_sig_summary": safe_read_csv(TABLE_DIR / "academic_varx_parameter_significance_summary.csv"),
+        "var_robust": safe_read_csv(TABLE_DIR / "academic_var_parameter_significance_robust.csv"),
+        "varx_robust": safe_read_csv(TABLE_DIR / "academic_varx_parameter_significance_robust.csv"),
+        "comparison": safe_read_csv(TABLE_DIR / "academic_var_varx_diagnostic_comparison.csv"),
+        "multihorizon": safe_read_csv(TABLE_DIR / "academic_multihorizon_forecast_comparison.csv"),
+        "dm": safe_read_csv(TABLE_DIR / "academic_diebold_mariano_tests.csv"),
+        "crisis": safe_read_csv(TABLE_DIR / "academic_crisis_dummy_robustness.csv"),
+        "expanding": safe_read_csv(TABLE_DIR / "academic_expanding_window_robustness.csv"),
+        "regime": safe_read_csv(TABLE_DIR / "academic_regime_split_comparison.csv"),
+        "irf_robustness": safe_read_csv(TABLE_DIR / "academic_irf_robustness_summary.csv"),
+        "fevd": safe_read_csv(TABLE_DIR / "academic_fevd_selected_horizons.csv"),
+        "varx_scenario": safe_read_csv(TABLE_DIR / "academic_varx_scenario_response.csv"),
+        "optimized_specs": safe_read_csv(TABLE_DIR / "optimized_final_model_specs.csv"),
+        "optimized_ranking": safe_read_csv(TABLE_DIR / "optimized_candidate_model_ranking.csv"),
+        "optimized_crisis": safe_read_csv(TABLE_DIR / "optimized_crisis_dummy_search.csv"),
+        "optimized_var_metrics": safe_read_csv(TABLE_DIR / "optimized_final_var_metrics.csv"),
+        "optimized_varx_metrics": safe_read_csv(TABLE_DIR / "optimized_final_varx_metrics.csv"),
+    }
+
+
+def modeling_frame(model_df: pd.DataFrame, dummies: pd.DataFrame) -> pd.DataFrame:
+    """Combine transformed model variables with break dummies for VARX experiments."""
+    return pd.concat([model_df, dummies], axis=1)

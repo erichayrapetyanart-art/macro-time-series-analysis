@@ -89,6 +89,7 @@ Main use:
 
 - conditional forecasting,
 - scenario forecasting with externally supplied policy/sentiment paths,
+- conditional shock/scenario response analysis for exogenous paths,
 - train/test forecast comparison,
 - rolling 3-month forecast evaluation.
 
@@ -138,10 +139,17 @@ Ridge Regression has the best one-step RMSE, but econometric models remain more 
 - Pairwise Engle-Granger tests do not support cointegration among non-stationary level variables.
 - VAR(4) is stable.
 - Some residual autocorrelation remains visually, so the model is not perfectly white.
+- Multivariate whiteness tests reject for the baseline systems; this is reported as a limitation.
+- Residual normality is rejected in several equations, consistent with fat-tailed crisis shocks around 2008 and COVID.
 - Lag robustness shows higher lag orders reduce residual ACF exceedances but add parameters.
-- ARCH effects appear in selected equations, especially inflation and M2 growth.
+- ARCH and heteroskedasticity effects appear in selected equations, especially inflation and M2 growth.
+- HC3 and HAC/Newey-West robust inference is now included as a coefficient-significance sensitivity check.
+- Model complexity tables warn that full VAR parameter count is high relative to sample size.
 - `FEDFUNDS` Granger-causes inflation at the 5% level.
 - Rolling VARX 3-month forecasts beat random walk for inflation.
+- Multi-horizon forecast tables compare VAR, VARX, Ridge Regression, and Random Walk at 1, 3, 6, and 12 months.
+- Crisis dummy, expanding-window, regime-split, and alternative Cholesky-ordering robustness outputs are generated.
+- VARX conditional scenario responses are generated for a temporary `FEDFUNDS` path shock. These are explicitly not structural IRFs.
 
 ## Main Files
 
@@ -151,6 +159,7 @@ Ridge Regression has the best one-step RMSE, but econometric models remain more 
 | `dashboard_app.py` | interactive Streamlit dashboard |
 | `src/macro_time_series_analysis.py` | base FRED download and baseline analysis |
 | `src/advanced_macro_var_analysis.py` | full academic econometric and ML pipeline |
+| `src/data.py` / `src/models_var.py` / `src/models_varx.py` / `src/diagnostics.py` / `src/forecasting.py` / `src/visualization.py` / `src/dashboard_helpers.py` | modular dashboard support code |
 | `project_report.md` | compact report summary |
 | `README.md` | setup and run instructions |
 | `requirements.txt` | Python dependencies |
@@ -181,10 +190,26 @@ Examples:
 - `academic_var_residual_ccf_summary.csv`
 - `academic_var_arch_tests.csv`
 - `academic_varx_arch_tests.csv`
+- `academic_var_residual_normality.csv`
+- `academic_varx_residual_normality.csv`
+- `academic_var_heteroskedasticity_tests.csv`
+- `academic_varx_heteroskedasticity_tests.csv`
 - `academic_var_parameter_significance.csv`
 - `academic_varx_parameter_significance.csv`
+- `academic_var_parameter_significance_robust.csv`
+- `academic_varx_parameter_significance_robust.csv`
+- `academic_model_complexity_overparameterization.csv`
+- `academic_var_varx_diagnostic_comparison.csv`
+- `academic_multihorizon_forecast_comparison.csv`
+- `academic_diebold_mariano_tests.csv`
+- `academic_crisis_dummy_robustness.csv`
+- `academic_expanding_window_robustness.csv`
+- `academic_regime_split_comparison.csv`
+- `academic_irf_robustness_summary.csv`
+- `academic_alternative_cholesky_orderings.csv`
 - `academic_irf_paths.csv`
 - `academic_irf_interpretation_table.csv`
+- `academic_varx_scenario_response.csv`
 - `academic_fevd_full.csv`
 - `academic_fevd_dominant_shocks.csv`
 - `academic_granger_causality_map.csv`
@@ -205,7 +230,12 @@ Examples:
 - `academic_14_ml_forecast_comparison.png`
 - `academic_var_residual_acf.png`
 - `academic_var_residual_acf_ccf_matrix.png`
+- `academic_var_residual_qq_hist.png`
+- `academic_varx_residual_qq_hist.png`
 - `academic_varx_residual_acf_ccf_matrix.png`
+- `academic_multihorizon_rmse.png`
+- `academic_irf_with_confidence_intervals.png`
+- `academic_varx_fedfunds_scenario_response.png`
 
 ## How To Run
 
@@ -248,7 +278,19 @@ http://127.0.0.1:8501/
 
 ## Current Dashboard Status
 
-The dashboard is intended as the presentation/demo layer. It includes tabs for:
+The dashboard is intended as the presentation/demo layer. Sidebar page order:
+
+1. Overview
+2. Stationarity and Data Preparation
+3. Model Architecture and Direct Results
+4. Forecast Comparison
+5. Residual Diagnostics
+6. Significance Analysis and Granger Causality
+7. IRF and FEVD
+8. Robustness
+9. Code quality
+
+It includes:
 
 - official baseline model architecture,
 - an interactive VAR/VARX model lab,
@@ -258,19 +300,21 @@ The dashboard is intended as the presentation/demo layer. It includes tabs for:
 - manual lag-order choice,
 - forecasts and ML comparison,
 - residual time-series, ACF, CCF, Ljung-Box, and ARCH diagnostics,
+- residual normality histograms, Q-Q plots, Jarque-Bera tests, skewness, and kurtosis,
 - stability roots and overparameterization warnings,
+- baseline robustness tables for robust significance, crisis dummies, multi-horizon forecasts, Diebold-Mariano tests, expanding windows, and regimes,
 - VAR IRF/FEVD with Cholesky-ordering warnings and alternative ordering input,
+- VARX conditional scenario responses with explicit warnings that exogenous paths are assumed,
 - data exploration, correlations, and stationarity tables.
 
 ## Notes for Future Improvement
 
 Strong possible extensions:
 
-- add oil prices, exchange rates, financial conditions, or inflation expectations;
+- add exchange rates, fiscal variables, financial conditions, labor-market detail, or inflation expectations;
 - test alternative Cholesky orderings;
 - estimate Bayesian VAR or restricted VAR;
-- add bootstrap IRF confidence intervals;
+- expand bootstrap IRF confidence intervals beyond the current baseline FEDFUNDS shock figure;
 - consider time-varying parameter VAR or stochastic-volatility VAR;
-- add Diebold-Mariano forecast comparison tests;
 - compare expanding-window vs rolling-window forecasts;
 - add real-time data vintage discussion if the course requires forecasting realism.

@@ -1,0 +1,6 @@
+equation,R_squared,residual_std_error,n_effective_obs,parameters_per_equation,Acceptable if
+INF,0.3119462813624094,0.2526431195696558,334,26,"higher R-squared and lower residual standard error indicate better in-sample fit, but forecasting and diagnostics are more important"
+FEDFUNDS,0.9967351065516608,0.13013980586333437,334,26,"higher R-squared and lower residual standard error indicate better in-sample fit, but forecasting and diagnostics are more important"
+UNRATE,0.919782103370354,0.5440107313335822,334,26,"higher R-squared and lower residual standard error indicate better in-sample fit, but forecasting and diagnostics are more important"
+INDPRO_GROWTH,0.32536057923173356,0.9693090722618466,334,26,"higher R-squared and lower residual standard error indicate better in-sample fit, but forecasting and diagnostics are more important"
+SENTIMENT_CHANGE,0.1715450108293235,3.8799277784677813,334,26,"higher R-squared and lower residual standard error indicate better in-sample fit, but forecasting and diagnostics are more important"

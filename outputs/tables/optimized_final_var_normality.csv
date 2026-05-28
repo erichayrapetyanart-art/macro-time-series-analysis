@@ -1,0 +1,6 @@
+equation,test,Acceptable if,jarque_bera_stat,jarque_bera_p_value,skewness,kurtosis_pearson,reject_normality_at_5pct
+INF,Jarque-Bera,p-value > 0.05 for approximate normal residuals,86.68787446525488,1.499571700385395e-19,-0.03432027460146726,5.550811185900436,True
+FEDFUNDS,Jarque-Bera,p-value > 0.05 for approximate normal residuals,2432.3001120529516,0.0,-2.0328420454334135,15.79412953049778,True
+UNRATE,Jarque-Bera,p-value > 0.05 for approximate normal residuals,294475.30482097226,0.0,9.783370874841287,149.35403742901866,True
+INDPRO_GROWTH,Jarque-Bera,p-value > 0.05 for approximate normal residuals,29050.441259844207,0.0,-4.397756448156486,48.538607582326165,True
+SENTIMENT_CHANGE,Jarque-Bera,p-value > 0.05 for approximate normal residuals,20.731931450357642,3.1486057625510005e-05,-0.33871951771325515,4.050883628440607,True

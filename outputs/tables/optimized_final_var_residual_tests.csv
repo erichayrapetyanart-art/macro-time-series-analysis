@@ -1,0 +1,6 @@
+equation,test,Acceptable if,durbin_watson,ljung_box_p_value,arch_lm_p_value
+INF,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.007558188196994,0.1851924858907885,0.0009096136380327619
+FEDFUNDS,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.0226700773790465,0.41530428870713365,0.9180400366193906
+UNRATE,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.0114989065383067,0.7266914636136617,0.9999999683679912
+INDPRO_GROWTH,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.047911653984617,0.4722273824587987,0.4466811830232369
+SENTIMENT_CHANGE,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.0176413474967685,0.9803880221729914,0.4018229356852713

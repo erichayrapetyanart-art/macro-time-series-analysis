@@ -1,0 +1,5 @@
+equation,test,Acceptable if,durbin_watson,ljung_box_p_value,arch_lm_p_value
+INF,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,1.9765499445084072,0.331044322813452,9.42852091389401e-07
+UNRATE,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.0575973333835575,0.5962717839196805,0.9999999986056438
+INDPRO_GROWTH,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.077429451507422,0.06135964901980392,0.7400089031007502
+M2_GROWTH,Durbin-Watson / Ljung-Box / ARCH-LM,DW near 2; Ljung-Box p-value > 0.05; ARCH-LM p-value > 0.05,2.022010809446611,0.322994037835061,1.5028370582902392e-11

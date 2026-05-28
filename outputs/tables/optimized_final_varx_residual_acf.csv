@@ -1,0 +1,5 @@
+equation,acf_exceedance_count,acf_exceedance_share,max_abs_acf_lag_1_to_12,lag_of_max_abs_acf,Acceptable if
+INF,1,0.08333333333333333,0.12054199963603582,11,most positive-lag residual ACF bars stay inside +/-1.96/sqrt(T); lag 0 is excluded
+UNRATE,0,0.0,0.09210308512680347,12,most positive-lag residual ACF bars stay inside +/-1.96/sqrt(T); lag 0 is excluded
+INDPRO_GROWTH,2,0.16666666666666666,0.16167809062108465,10,most positive-lag residual ACF bars stay inside +/-1.96/sqrt(T); lag 0 is excluded
+M2_GROWTH,0,0.0,0.0945523523159545,6,most positive-lag residual ACF bars stay inside +/-1.96/sqrt(T); lag 0 is excluded

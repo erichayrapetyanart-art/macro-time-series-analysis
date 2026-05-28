@@ -44,11 +44,16 @@ The notebook includes:
 - VARX estimation with policy/sentiment conditioning variables and explicit conditional forecast interpretation.
 - Residual diagnostics: Durbin-Watson, Ljung-Box, residual correlation, and stability roots.
 - Visual residual autocorrelation diagnostics: residual ACF plots and residual ACF/CCF matrices with confidence bounds.
-- Parameter significance analysis using coefficients, standard errors, t-statistics, p-values, and confidence intervals.
+- Residual normality diagnostics using Jarque-Bera, skewness, kurtosis, histograms, Q-Q plots, and VAR system normality tests.
+- Parameter significance analysis using coefficients, classical standard errors, HC3 robust p-values, HAC/Newey-West p-values, and confidence intervals.
 - Heteroskedasticity and ARCH tests for VAR and VARX residuals.
+- Model complexity and overparameterization warnings.
+- Crisis dummy, expanding-window, regime-split, and Cholesky-ordering robustness checks.
+- Multi-horizon forecast comparison and approximate Diebold-Mariano tests.
 - Granger causality tests.
 - Impulse Response Functions.
 - Forecast Error Variance Decomposition.
+- VARX conditional scenario-response analysis for externally supplied policy paths.
 - Forecast evaluation using RMSE and MAE.
 
 ## Final Model Architecture
@@ -87,8 +92,21 @@ The project also includes `dashboard_app.py`, a Streamlit dashboard that interac
 - residual diagnostics,
 - stability and significance tables,
 - model comparison metrics.
+- VARX scenario responses.
 
 The dashboard is not only a static presentation layer. It includes an interactive model lab where users can choose the train/test split date, switch between VAR and VARX, select endogenous and exogenous variables, run real-time AIC/BIC/HQIC lag selection, manually choose lag order, refit the model, inspect stability and residual diagnostics, compare forecasts with ML benchmarks, and evaluate VAR IRF/FEVD results under alternative Cholesky orderings.
+
+Dashboard page order:
+
+1. Overview
+2. Stationarity and Data Preparation
+3. Model Architecture and Direct Results
+4. Forecast Comparison
+5. Residual Diagnostics
+6. Significance Analysis and Granger Causality
+7. IRF and FEVD
+8. Robustness
+9. Code quality
 
 The notebook is intended for academic methodology and written explanation. The dashboard is intended for presentation and interactive interpretation.
 
@@ -99,9 +117,11 @@ The notebook is intended for academic methodology and written explanation. The d
 - All transformed model variables are stationary at the 5% level.
 - AIC selects a VAR lag order of 4.
 - The VAR system is stable.
-- Visual residual diagnostics show that several residual ACF values still exceed approximate 95% confidence bounds, so the model is not perfectly white despite being stable.
+- Visual residual diagnostics show that several residual ACF values still exceed approximate 95% confidence bounds, and multivariate whiteness is rejected, so the model is not perfectly white despite being stable.
+- Residual normality is rejected in several equations. This is plausible for monthly macro data with 2008 and COVID tail events; it mainly affects inference and confidence bands rather than automatically invalidating forecasts.
 - Lag robustness indicates that higher lag orders reduce residual autocorrelation exceedances, but at the cost of additional parameters.
-- ARCH tests detect heteroskedasticity in selected equations, especially inflation and M2 growth, so inference and confidence intervals should be interpreted with caution.
+- ARCH and heteroskedasticity tests detect variance instability in selected equations, so robust inference and bootstrap/Monte Carlo confidence intervals should be preferred for sensitivity analysis.
+- Robust HC3/HAC checks show that some individual VAR coefficient significance conclusions are sensitive to covariance assumptions.
 - The federal funds rate has significant Granger-predictive content for inflation.
 - Rolling 3-month VARX forecasts beat random walk for inflation.
 
@@ -125,14 +145,19 @@ Machine-learning methods, especially regularized linear regression, perform well
 
 The IRF section is especially important for policy interpretation. It shows how monetary policy, inflation, unemployment, output, money, and sentiment shocks propagate over time. These results are conditional on the Cholesky ordering, so they should be interpreted as recursively identified scenario evidence rather than definitive structural causality.
 
+VARX scenario responses are reported separately from VAR/SVAR IRFs. They show how endogenous VARX variables respond when an exogenous path, such as FEDFUNDS, is temporarily shocked. This is conditional scenario analysis, not structural identification.
+
 FEVD results show how forecast uncertainty is allocated across structural shocks. Inflation forecast variance is mostly explained by its own shock in the reported horizons, while other variables show different dominant shock sources.
+
+If a positive federal funds rate shock is associated with a short-run inflation increase, the result should be interpreted as a possible price puzzle or endogenous policy reaction, not as mechanical causal evidence. Medium-run responses and robustness across plausible orderings are more credible than one impact response.
 
 ## Limitations
 
 - Granger causality is predictive, not structural causality.
 - Cholesky IRFs depend on the chosen variable ordering.
+- Residual non-normality and heteroskedasticity make classical p-values and confidence intervals less reliable.
 - Residual autocorrelation remains in some equations, suggesting possible improvements through lag-order changes, seasonal effects, additional exogenous variables, or restricted/Bayesian VARs.
 - ARCH effects suggest that robust standard errors, bootstrap IRF bands, GARCH-type volatility modeling, or stochastic-volatility VARs could improve inference.
 - VAR parameters may be unstable across major regimes.
 - VARX conditional forecasts use future exogenous values; fully real-time forecasting would require forecasting those variables too.
-- Important omitted variables include oil prices, exchange rates, fiscal policy, financial conditions, and inflation expectations.
+- Important omitted variables include exchange rates, fiscal policy, financial conditions, labor-market detail, and inflation expectations.

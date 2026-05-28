@@ -1,147 +1,93 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from io import StringIO
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
-from sklearn.linear_model import Ridge
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
-from statsmodels.stats.stattools import durbin_watson
 from statsmodels.tsa.api import VAR
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 
-
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-TABLE_DIR = BASE_DIR / "outputs" / "tables"
-
-PLOT_TEMPLATE = "plotly_white"
-MAX_UI_LAG = 8
-MIN_TEST_OBS = 3
-
-
-@dataclass
-class ModelRun:
-    model_type: str
-    lag_order: int
-    target: str
-    train: pd.DataFrame
-    test: pd.DataFrame
-    endog: list[str]
-    exog: list[str]
-    fitted: object
-    residuals: pd.DataFrame
-    forecasts: pd.DataFrame
-    metrics: pd.DataFrame
-    parameter_table: pd.DataFrame
-    stable: bool | None
-    roots: pd.DataFrame
-    warning: str
-
-
-st.set_page_config(
-    page_title="VAR / VARX Macro Dashboard",
-    layout="wide",
+from src.data import load_project_data as load_project_data_uncached, modeling_frame
+from src.dashboard_helpers import (
+    MIN_TEST_OBS,
+    ModelRun,
+    add_rule_column,
+    dataframe_from_json,
+    dataframe_to_json,
+    dynamic_max_lag,
+    lag_selection_summary,
+    parameter_count,
+    round_numeric,
 )
+from src.diagnostics import (
+    acf_values,
+    integration_order_table,
+    kpss_stationarity_table,
+    residual_cross_correlation_summary,
+    residual_cross_correlation_values,
+    residual_normality_table,
+    residual_test_table,
+    series_acf_pacf_values,
+    signed_ccf_heatmap,
+)
+from src.forecasting import combined_inflation_forecasts, official_var_varx_forecasts
+from src.models_var import equation_fit_metrics, fit_var_system, select_var_lags, var_fevd_paths, var_irf_paths
+from src.models_varx import fit_varx_system, select_varx_lags, varx_exogenous_scenario_response
+from src.visualization import (
+    plot_acf,
+    plot_correlogram,
+    plot_forecast_lines,
+    plot_forecast_run,
+    plot_granger_heatmap,
+    plot_heatmap,
+    plot_lag_table,
+    plot_cross_correlation_lags,
+    plot_residual_distribution,
+    plot_response_grid,
+    plot_time_series,
+    plot_var_varx_forecast,
+)
+
+
+st.set_page_config(page_title="VAR / VARX Macro Dashboard", layout="wide")
 
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.25rem; padding-bottom: 2.5rem;}
-    div[data-testid="stMetric"] {background:#f7f9fb; border:1px solid #e6eaf0; padding:0.7rem; border-radius:8px;}
-    .note {border-left:4px solid #315c7c; padding:0.75rem 0.95rem; background:#f6f8fa; margin:0.7rem 0 1rem 0;}
-    .warn {border-left:4px solid #b45309; padding:0.75rem 0.95rem; background:#fff7ed; margin:0.7rem 0 1rem 0;}
+    .block-container {padding-top: 1.2rem; padding-bottom: 2.5rem;}
+    div[data-testid="stMetric"] {
+        background: color-mix(in srgb, var(--background-color) 86%, var(--text-color) 14%);
+        border: 1px solid color-mix(in srgb, var(--background-color) 70%, var(--text-color) 30%);
+        padding: 0.7rem;
+        border-radius: 8px;
+    }
+    .note {
+        border-left: 4px solid #3b82f6;
+        padding: 0.75rem 0.95rem;
+        background: color-mix(in srgb, var(--background-color) 90%, #3b82f6 10%);
+        margin: 0.7rem 0 1rem 0;
+    }
+    .warn {
+        border-left: 4px solid #d97706;
+        padding: 0.75rem 0.95rem;
+        background: color-mix(in srgb, var(--background-color) 88%, #d97706 12%);
+        margin: 0.7rem 0 1rem 0;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 
-@st.cache_data
-def read_indexed_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path, parse_dates=["date"], index_col="date")
+VAR_COLUMNS = ["FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"]
+VARX_ENDOG = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH"]
+VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE", "D_2008", "D_COVID"]
 
 
 @st.cache_data
-def read_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path)
-
-
-def rmse(y_true: pd.Series | np.ndarray, y_pred: pd.Series | np.ndarray) -> float:
-    return float(mean_squared_error(y_true, y_pred) ** 0.5)
-
-
-def safe_arch_pvalue(series: pd.Series) -> float:
-    try:
-        return float(het_arch(series.dropna(), nlags=min(12, max(1, len(series) // 5)))[1])
-    except Exception:
-        return np.nan
-
-
-def acf_values(series: pd.Series, max_lag: int = 24) -> pd.DataFrame:
-    lags = range(1, min(max_lag, len(series) - 2) + 1)
-    values = [series.autocorr(lag=lag) for lag in lags]
-    bound = 1.96 / np.sqrt(len(series))
-    return pd.DataFrame(
-        {
-            "lag": list(lags),
-            "acf": values,
-            "upper": bound,
-            "lower": -bound,
-            "outside_bound": [abs(value) > bound for value in values],
-        }
-    )
-
-
-def residual_ccf_matrix(residuals: pd.DataFrame, max_lag: int = 12) -> pd.DataFrame:
-    cols = list(residuals.columns)
-    matrix = pd.DataFrame(np.eye(len(cols)), index=cols, columns=cols)
-    for source in cols:
-        for target in cols:
-            if source == target:
-                values = [residuals[target].autocorr(lag=lag) for lag in range(1, min(max_lag, len(residuals) - 2) + 1)]
-            else:
-                values = []
-                for lag in range(1, min(max_lag, len(residuals) - 2) + 1):
-                    values.append(np.corrcoef(residuals[source].iloc[:-lag], residuals[target].iloc[lag:])[0, 1])
-            matrix.loc[source, target] = np.nanmax(np.abs(values)) if values else np.nan
-    return matrix
-
-
-def parameter_count(k_endog: int, p_lag: int, k_exog: int, include_const: bool = True) -> tuple[int, int]:
-    per_equation = k_endog * p_lag + k_exog + (1 if include_const else 0)
-    return per_equation, per_equation * k_endog
-
-
-def make_lagged_features(data: pd.DataFrame, feature_cols: list[str], target: str, lag_order: int) -> tuple[pd.DataFrame, pd.Series]:
-    rows = []
-    idx = []
-    for i in range(lag_order, len(data)):
-        row = {}
-        for lag in range(1, lag_order + 1):
-            for col in feature_cols:
-                row[f"{col}_lag{lag}"] = data[col].iloc[i - lag]
-        rows.append(row)
-        idx.append(data.index[i])
-    x = pd.DataFrame(rows, index=idx)
-    y = data[target].iloc[lag_order:].copy()
-    y.index = x.index
-    return x, y
-
-
-def dynamic_max_lag(n_train: int, k_endog: int, k_exog: int) -> int:
-    # Keep real-time experiments responsive and avoid extremely weak degrees of freedom.
-    raw = max(1, (n_train - k_exog - 10) // max(2, k_endog * 4))
-    return int(max(1, min(MAX_UI_LAG, raw)))
+def load_project_data() -> dict[str, pd.DataFrame]:
+    return load_project_data_uncached()
 
 
 @st.cache_data(show_spinner=False)
@@ -153,61 +99,12 @@ def select_lags_cached(
     exog: tuple[str, ...],
     max_lag: int,
 ) -> pd.DataFrame:
-    data = pd.read_json(StringIO(data_json), orient="split")
-    data.index = pd.to_datetime(data.index)
+    data = dataframe_from_json(data_json)
     train = data.loc[:split_date]
     if model_type == "VAR":
-        lag_sel = VAR(train[list(endog)]).select_order(maxlags=max_lag)
-        return pd.DataFrame(
-            {
-                "lag": list(range(len(lag_sel.ics["aic"]))),
-                "AIC": lag_sel.ics["aic"],
-                "BIC": lag_sel.ics["bic"],
-                "HQIC": lag_sel.ics["hqic"],
-                "FPE": lag_sel.ics["fpe"],
-            }
-        )
-
-    train_endog = train[list(endog)]
+        return select_var_lags(train[list(endog)], max_lag)
     train_exog = train[list(exog)] if exog else None
-    if len(endog) >= 2:
-        lag_sel = VAR(train_endog, exog=train_exog).select_order(maxlags=max_lag)
-        return pd.DataFrame(
-            {
-                "lag": list(range(len(lag_sel.ics["aic"]))),
-                "AIC": lag_sel.ics["aic"],
-                "BIC": lag_sel.ics["bic"],
-                "HQIC": lag_sel.ics["hqic"],
-                "FPE": lag_sel.ics["fpe"],
-            }
-        )
-
-    rows = []
-    y = train_endog.iloc[:, 0]
-    for lag in range(1, max_lag + 1):
-        try:
-            fitted = SARIMAX(
-                y,
-                exog=train_exog,
-                order=(lag, 0, 0),
-                trend="c",
-                enforce_stationarity=False,
-                enforce_invertibility=False,
-            ).fit(disp=False)
-            n = fitted.nobs
-            k = len(fitted.params)
-            rows.append(
-                {
-                    "lag": lag,
-                    "AIC": fitted.aic,
-                    "BIC": fitted.bic,
-                    "HQIC": -2 * fitted.llf + 2 * k * np.log(np.log(n)),
-                    "FPE": np.nan,
-                }
-            )
-        except Exception:
-            rows.append({"lag": lag, "AIC": np.nan, "BIC": np.nan, "HQIC": np.nan, "FPE": np.nan})
-    return pd.DataFrame(rows)
+    return select_varx_lags(train[list(endog)], train_exog, max_lag)
 
 
 @st.cache_data(show_spinner=False)
@@ -220,518 +117,863 @@ def fit_model_cached(
     lag_order: int,
     target: str,
 ) -> dict:
-    data = pd.read_json(StringIO(data_json), orient="split")
-    data.index = pd.to_datetime(data.index)
-    train = data.loc[:split_date].copy()
-    test = data.loc[data.index > pd.Timestamp(split_date)].copy()
-
-    if len(test) < MIN_TEST_OBS:
-        raise ValueError("The test period is too short. Choose an earlier split date.")
-    if lag_order >= len(train) - 5:
-        raise ValueError("Lag order is too high for the available training sample.")
-
-    warning = ""
-    stable = None
-    roots_df = pd.DataFrame()
-
+    data = dataframe_from_json(data_json)
     if model_type == "VAR":
-        fitted = VAR(train[list(endog)]).fit(lag_order, trend="c")
-        points, lower, upper = fitted.forecast_interval(train[list(endog)].values[-lag_order:], steps=len(test), alpha=0.05)
-        columns = list(endog)
-        forecasts = pd.DataFrame(points, index=test.index, columns=columns)
-        lower_df = pd.DataFrame(lower, index=test.index, columns=[f"{col}_lower_95" for col in columns])
-        upper_df = pd.DataFrame(upper, index=test.index, columns=[f"{col}_upper_95" for col in columns])
-        residuals = fitted.resid
-        stable = bool(fitted.is_stable())
-        roots = 1 / fitted.roots
-        roots_df = pd.DataFrame({"real": roots.real, "imag": roots.imag, "modulus": np.abs(roots)})
-        params = fitted.params
-        stderr = fitted.stderr
-        pvalues = fitted.pvalues
-        tvalues = fitted.tvalues
+        result = fit_var_system(data, split_date, list(endog), lag_order, target)
     else:
-        if exog:
-            train_exog = train[list(exog)]
-            test_exog = test[list(exog)]
-        else:
-            train_exog = None
-            test_exog = None
-
-        if len(endog) >= 2:
-            fitted = VAR(train[list(endog)], exog=train_exog).fit(lag_order, trend="c")
-            points, lower, upper = fitted.forecast_interval(
-                train[list(endog)].values[-lag_order:],
-                steps=len(test),
-                alpha=0.05,
-                exog_future=test_exog.values if test_exog is not None else None,
-            )
-            columns = list(endog)
-            forecasts = pd.DataFrame(points, index=test.index, columns=columns)
-            lower_df = pd.DataFrame(lower, index=test.index, columns=[f"{col}_lower_95" for col in columns])
-            upper_df = pd.DataFrame(upper, index=test.index, columns=[f"{col}_upper_95" for col in columns])
-            residuals = fitted.resid
-            stable = bool(fitted.is_stable())
-            roots = 1 / fitted.roots
-            roots_df = pd.DataFrame({"real": roots.real, "imag": roots.imag, "modulus": np.abs(roots)})
-            params = fitted.params
-            stderr = fitted.stderr
-            pvalues = fitted.pvalues
-            tvalues = fitted.tvalues
-        else:
-            y = train[list(endog)[0]]
-            fitted = SARIMAX(
-                y,
-                exog=train_exog,
-                order=(lag_order, 0, 0),
-                trend="c",
-                enforce_stationarity=False,
-                enforce_invertibility=False,
-            ).fit(disp=False)
-            pred = fitted.get_forecast(steps=len(test), exog=test_exog)
-            conf = pred.conf_int()
-            col = list(endog)[0]
-            forecasts = pd.DataFrame({col: pred.predicted_mean}, index=test.index)
-            lower_df = pd.DataFrame({f"{col}_lower_95": conf.iloc[:, 0].values}, index=test.index)
-            upper_df = pd.DataFrame({f"{col}_upper_95": conf.iloc[:, 1].values}, index=test.index)
-            residuals = pd.DataFrame({col: fitted.resid.dropna()})
-            stable = bool(np.all(np.abs(1 / fitted.arroots) < 1)) if len(fitted.arroots) else None
-            roots = 1 / fitted.arroots if len(fitted.arroots) else np.array([])
-            roots_df = pd.DataFrame({"real": roots.real, "imag": roots.imag, "modulus": np.abs(roots)})
-            params = pd.DataFrame({col: fitted.params})
-            stderr = pd.DataFrame({col: fitted.bse})
-            pvalues = pd.DataFrame({col: fitted.pvalues})
-            tvalues = pd.DataFrame({col: fitted.tvalues})
-            warning = "Single-endogenous VARX is estimated as an ARX/SARIMAX-style conditional equation; IRF/FEVD are not available."
-
-    forecasts = pd.concat([forecasts, lower_df, upper_df], axis=1)
-    rows = []
-    for col in endog:
-        if col in forecasts and col in test:
-            rows.append(
-                {
-                    "variable": col,
-                    "rmse": rmse(test[col], forecasts[col]),
-                    "mae": float(mean_absolute_error(test[col], forecasts[col])),
-                }
-            )
-    metrics = pd.DataFrame(rows)
-
-    parameter_rows = []
-    for param in params.index:
-        for equation in params.columns:
-            coef = params.loc[param, equation]
-            se = stderr.loc[param, equation]
-            parameter_rows.append(
-                {
-                    "equation": equation,
-                    "parameter": param,
-                    "coefficient": coef,
-                    "std_error": se,
-                    "t_stat": tvalues.loc[param, equation],
-                    "p_value": pvalues.loc[param, equation],
-                    "lower_95": coef - 1.96 * se,
-                    "upper_95": coef + 1.96 * se,
-                    "significant_at_5pct": pvalues.loc[param, equation] < 0.05,
-                }
-            )
-    parameter_table = pd.DataFrame(parameter_rows)
-
+        result = fit_varx_system(data, split_date, list(endog), list(exog), lag_order, target)
     return {
-        "train": train.to_json(date_format="iso", orient="split"),
-        "test": test.to_json(date_format="iso", orient="split"),
-        "forecasts": forecasts.to_json(date_format="iso", orient="split"),
-        "residuals": residuals.to_json(date_format="iso", orient="split"),
-        "metrics": metrics.to_json(orient="split"),
-        "parameter_table": parameter_table.to_json(orient="split"),
-        "stable": stable,
-        "roots": roots_df.to_json(orient="split"),
-        "warning": warning,
+        "train": dataframe_to_json(result["train"]),
+        "test": dataframe_to_json(result["test"]),
+        "residuals": dataframe_to_json(result["residuals"]),
+        "forecasts": dataframe_to_json(result["forecasts"]),
+        "metrics": result["metrics"].to_json(orient="split"),
+        "fit_metrics": result["fit_metrics"].to_json(orient="split"),
+        "fit_info": result["fit_info"].to_json(orient="split"),
+        "parameter_table": result["parameter_table"].to_json(orient="split"),
+        "stable": result["stable"],
+        "roots": result["roots"].to_json(orient="split"),
+        "whiteness_p_value": result["whiteness_p_value"],
+        "normality_p_value": result["normality_p_value"],
+        "warning": result.get("warning", ""),
     }
 
 
-def unpack_model_run(payload: dict, model_type: str, lag_order: int, target: str, endog: list[str], exog: list[str]) -> ModelRun:
+def unpack_run(
+    payload: dict,
+    model_type: str,
+    lag_order: int,
+    target: str,
+    endog: list[str],
+    exog: list[str],
+) -> ModelRun:
     return ModelRun(
         model_type=model_type,
         lag_order=lag_order,
         target=target,
-        train=pd.read_json(StringIO(payload["train"]), orient="split"),
-        test=pd.read_json(StringIO(payload["test"]), orient="split"),
+        train=dataframe_from_json(payload["train"]),
+        test=dataframe_from_json(payload["test"]),
         endog=endog,
         exog=exog,
-        fitted=None,
-        residuals=pd.read_json(StringIO(payload["residuals"]), orient="split"),
-        forecasts=pd.read_json(StringIO(payload["forecasts"]), orient="split"),
+        residuals=dataframe_from_json(payload["residuals"]),
+        forecasts=dataframe_from_json(payload["forecasts"]),
         metrics=pd.read_json(StringIO(payload["metrics"]), orient="split"),
+        fit_metrics=pd.read_json(StringIO(payload["fit_metrics"]), orient="split"),
+        fit_info=pd.read_json(StringIO(payload["fit_info"]), orient="split"),
         parameter_table=pd.read_json(StringIO(payload["parameter_table"]), orient="split"),
         stable=payload["stable"],
         roots=pd.read_json(StringIO(payload["roots"]), orient="split"),
-        warning=payload["warning"],
+        whiteness_p_value=payload.get("whiteness_p_value"),
+        normality_p_value=payload.get("normality_p_value"),
+        warning=payload.get("warning", ""),
     )
 
 
-def plot_time_series(df: pd.DataFrame, columns: list[str], title: str) -> go.Figure:
-    fig = go.Figure()
-    for col in columns:
-        fig.add_trace(go.Scatter(x=df.index, y=df[col], mode="lines", name=col))
-    fig.update_layout(title=title, template=PLOT_TEMPLATE, height=480, margin=dict(l=20, r=20, t=60, b=20))
-    return fig
-
-
-def plot_forecasts(run: ModelRun) -> go.Figure:
-    target = run.target
-    fig = go.Figure()
-    history = run.train[target].tail(60)
-    fig.add_trace(go.Scatter(x=history.index, y=history, mode="lines", name="Training history", line=dict(color="#6b7280")))
-    fig.add_trace(go.Scatter(x=run.test.index, y=run.test[target], mode="lines+markers", name="Actual test", line=dict(color="black", width=2.5)))
-    fig.add_trace(go.Scatter(x=run.forecasts.index, y=run.forecasts[target], mode="lines+markers", name=f"{run.model_type} forecast"))
-    lower = f"{target}_lower_95"
-    upper = f"{target}_upper_95"
-    if lower in run.forecasts and upper in run.forecasts:
-        fig.add_trace(go.Scatter(x=run.forecasts.index, y=run.forecasts[upper], mode="lines", line=dict(width=0), showlegend=False, hoverinfo="skip"))
-        fig.add_trace(go.Scatter(x=run.forecasts.index, y=run.forecasts[lower], mode="lines", fill="tonexty", fillcolor="rgba(49, 92, 124, 0.18)", line=dict(width=0), name="95% forecast interval", hoverinfo="skip"))
-    fig.update_layout(title=f"Out-of-Sample Forecast for {target}", template=PLOT_TEMPLATE, height=520, margin=dict(l=20, r=20, t=60, b=20))
-    return fig
-
-
-def plot_lag_table(lag_table: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
-    for col in ["AIC", "BIC", "HQIC"]:
-        if col in lag_table:
-            fig.add_trace(go.Scatter(x=lag_table["lag"], y=lag_table[col], mode="lines+markers", name=col))
-    fig.update_layout(title="Lag Selection Criteria", template=PLOT_TEMPLATE, height=420)
-    return fig
-
-
-def plot_heatmap(matrix: pd.DataFrame, title: str, colorscale: str = "RdBu", zmin: float | None = None, zmax: float | None = None) -> go.Figure:
-    fig = go.Figure(
-        data=go.Heatmap(
-            z=matrix.values,
-            x=matrix.columns,
-            y=matrix.index,
-            colorscale=colorscale,
-            zmin=zmin,
-            zmax=zmax,
-            text=np.round(matrix.values, 3),
-            texttemplate="%{text}",
-            colorbar=dict(thickness=14),
-        )
-    )
-    fig.update_layout(title=title, template=PLOT_TEMPLATE, height=520, margin=dict(l=20, r=20, t=60, b=20))
-    return fig
-
-
-def ml_benchmark(data: pd.DataFrame, split_date: pd.Timestamp, feature_cols: list[str], target: str, lag_order: int) -> pd.DataFrame:
-    x, y = make_lagged_features(data, feature_cols, target, lag_order)
-    train_mask = x.index <= split_date
-    test_mask = x.index > split_date
-    if train_mask.sum() < 20 or test_mask.sum() < MIN_TEST_OBS:
-        return pd.DataFrame()
-    x_train, x_test = x.loc[train_mask], x.loc[test_mask]
-    y_train, y_test = y.loc[train_mask], y.loc[test_mask]
-    models = {
-        "Ridge Regression": make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
-        "Random Forest": RandomForestRegressor(n_estimators=200, random_state=42, min_samples_leaf=3),
-        "Gradient Boosting": GradientBoostingRegressor(random_state=42, max_depth=2),
+@st.cache_data(show_spinner=False)
+def baseline_residual_run(model_type: str) -> dict:
+    data = load_project_data()
+    model_df = data["model"]
+    dummies = data["dummies"]
+    lag = 4
+    if model_type == "VAR":
+        fitted = VAR(model_df[VAR_COLUMNS], exog=dummies[["D_2008", "D_COVID"]]).fit(lag, trend="c")
+    else:
+        exog = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
+        fitted = VAR(model_df[VARX_ENDOG], exog=exog).fit(lag, trend="c")
+    try:
+        whiteness_p = float(fitted.test_whiteness(nlags=12).pvalue)
+    except Exception:
+        whiteness_p = None
+    try:
+        normality_p = float(fitted.test_normality().pvalue)
+    except Exception:
+        normality_p = None
+    return {
+        "residuals": dataframe_to_json(fitted.resid),
+        "stable": bool(fitted.is_stable()),
+        "whiteness_p": whiteness_p,
+        "normality_p": normality_p,
     }
-    rows = []
-    for name, model in models.items():
-        model.fit(x_train, y_train)
-        pred = model.predict(x_test)
-        rows.append({"model": name, "rmse": rmse(y_test, pred), "mae": float(mean_absolute_error(y_test, pred))})
-    return pd.DataFrame(rows).sort_values("rmse")
 
 
-raw = read_indexed_csv(DATA_DIR / "raw_fred_macro.csv")
-model_df = read_indexed_csv(DATA_DIR / "academic_model_data.csv")
-architecture = read_csv(TABLE_DIR / "academic_final_model_architecture.csv")
-ordering = read_csv(TABLE_DIR / "academic_cholesky_ordering.csv")
-baseline_ranking = read_csv(TABLE_DIR / "academic_all_model_forecast_ranking.csv")
+@st.cache_data(show_spinner=False)
+def stationarity_payload(raw_json: str, model_json: str) -> dict:
+    raw_df = dataframe_from_json(raw_json)
+    model_data = dataframe_from_json(model_json)
+    return {
+        "raw_kpss": kpss_stationarity_table(raw_df).to_json(orient="split"),
+        "model_kpss": kpss_stationarity_table(model_data).to_json(orient="split"),
+        "integration": integration_order_table(raw_df).to_json(orient="split"),
+    }
+
+
+@st.cache_data(show_spinner=False)
+def official_forecasts_payload(model_json: str, dummies_json: str) -> dict:
+    model_data = dataframe_from_json(model_json)
+    dummy_data = dataframe_from_json(dummies_json)
+    forecasts, metrics = official_var_varx_forecasts(
+        model_data,
+        dummy_data,
+        VAR_COLUMNS,
+        VARX_ENDOG,
+        VARX_EXOG,
+        lag_order=4,
+        test_months=36,
+    )
+    return {
+        "forecasts": dataframe_to_json(forecasts.set_index("date")),
+        "metrics": metrics.to_json(orient="split"),
+    }
+
+
+@st.cache_data(show_spinner=False)
+def direct_model_results(model_type: str) -> dict:
+    project = load_project_data()
+    model_data = project["model"]
+    dummy_data = project["dummies"]
+    if model_type == "VAR":
+        fitted = VAR(model_data[VAR_COLUMNS], exog=dummy_data[["D_2008", "D_COVID"]]).fit(4, trend="c")
+        endog_data = model_data[VAR_COLUMNS]
+    else:
+        exog_data = pd.concat([model_data[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummy_data], axis=1)
+        fitted = VAR(model_data[VARX_ENDOG], exog=exog_data[VARX_EXOG]).fit(4, trend="c")
+        endog_data = model_data[VARX_ENDOG]
+    roots = 1 / fitted.roots
+    roots_df = pd.DataFrame({"real": roots.real, "imag": roots.imag, "modulus": np.abs(roots)})
+    return {
+        "fit": equation_fit_metrics(fitted, endog_data).to_json(orient="split"),
+        "roots": roots_df.to_json(orient="split"),
+        "aic": float(fitted.aic),
+        "bic": float(fitted.bic),
+        "hqic": float(fitted.hqic),
+        "stable": bool(fitted.is_stable()),
+        "nobs": int(fitted.nobs),
+        "params_per_equation": int(fitted.params.shape[0]),
+        "total_params": int(fitted.params.shape[0] * len(fitted.names)),
+    }
+
+
+def test_table(table: pd.DataFrame, rule: str) -> pd.DataFrame:
+    return round_numeric(add_rule_column(table, rule))
+
+
+def interactive_model_control_form(key_prefix: str, title: str) -> tuple[ModelRun | None, pd.DataFrame]:
+    st.subheader(title)
+    st.markdown(
+        """
+        This control form is for sensitivity analysis. It does not replace the official baseline specification
+        reported in the notebook; it shows how results change when the train/test split, variables, and lag order change.
+        """
+    )
+    container = st.container(border=True)
+    run: ModelRun | None = None
+    lag_table = pd.DataFrame()
+    with container:
+        endog_options = list(model_df.columns)
+        exog_options = list(modeling_df.columns)
+        default_split = model_df.index[-37].date()
+        c1, c2 = st.columns(2)
+        split_date = c1.date_input(
+            "Train/test split",
+            value=default_split,
+            min_value=model_df.index[60].date(),
+            max_value=model_df.index[-MIN_TEST_OBS - 1].date(),
+            key=f"{key_prefix}_split_date",
+        )
+        model_type = c2.radio(
+            "Model type",
+            ["VAR", "VARX"],
+            horizontal=True,
+            key=f"{key_prefix}_model_type",
+        )
+
+        default_endog = VAR_COLUMNS if model_type == "VAR" else VARX_ENDOG
+        endog = st.multiselect(
+            "Endogenous variables",
+            endog_options,
+            default=default_endog,
+            key=f"{key_prefix}_{model_type}_endog",
+        )
+
+        exog: list[str] = []
+        if model_type == "VARX":
+            available_exog = [var for var in exog_options if var not in endog]
+            exog = st.multiselect(
+                "VARX exogenous variables",
+                available_exog,
+                default=[var for var in VARX_EXOG if var in available_exog],
+                key=f"{key_prefix}_varx_exog",
+            )
+
+        valid_selection = True
+        if len(set(endog) & set(exog)):
+            st.error("A variable cannot be both endogenous and exogenous.")
+            valid_selection = False
+        if model_type == "VAR" and len(endog) < 2:
+            st.error("VAR requires at least two endogenous variables.")
+            valid_selection = False
+        if model_type == "VARX" and len(endog) < 1:
+            st.error("VARX requires at least one endogenous variable.")
+            valid_selection = False
+
+        split_ts = pd.Timestamp(split_date)
+        train_n = int((model_df.index <= split_ts).sum())
+        test_n = int((model_df.index > split_ts).sum())
+        dyn_max_lag = dynamic_max_lag(train_n, len(endog) if endog else 1, len(exog))
+        c3, c4, c5 = st.columns(3)
+        max_lag = c3.slider(
+            "Max lag for selection",
+            1,
+            dyn_max_lag,
+            min(4, dyn_max_lag),
+            key=f"{key_prefix}_max_lag",
+        )
+
+        data_json = dataframe_to_json(modeling_df)
+        if valid_selection and test_n >= MIN_TEST_OBS:
+            lag_table = select_lags_cached(
+                data_json,
+                str(split_ts.date()),
+                model_type,
+                tuple(endog),
+                tuple(exog),
+                max_lag,
+            )
+            lag_table = lag_table.dropna(subset=["AIC", "BIC", "HQIC"], how="all")
+            selected_lag = 1
+            if not lag_table.empty and lag_table["AIC"].notna().any():
+                selected_lag = int(lag_table.loc[lag_table["AIC"].idxmin(), "lag"])
+                selected_lag = max(1, selected_lag)
+            lag_order = c4.slider(
+                "Manual lag order",
+                1,
+                max_lag,
+                min(selected_lag, max_lag),
+                key=f"{key_prefix}_lag_order",
+            )
+            target = c5.selectbox(
+                "Forecast target",
+                endog,
+                index=endog.index("INF") if "INF" in endog else 0,
+                key=f"{key_prefix}_target",
+            )
+            per_eq, total_params = parameter_count(len(endog), lag_order, len(exog))
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Train obs.", f"{train_n:,}")
+            m2.metric("Test obs.", f"{test_n:,}")
+            m3.metric("Parameters/equation", f"{per_eq:,}")
+            m4.metric("Total parameters", f"{total_params:,}")
+            if train_n / max(total_params, 1) < 5:
+                st.warning("High overparameterization risk for this specification.")
+            try:
+                payload = fit_model_cached(
+                    data_json,
+                    str(split_ts.date()),
+                    model_type,
+                    tuple(endog),
+                    tuple(exog),
+                    lag_order,
+                    target,
+                )
+                run = unpack_run(payload, model_type, lag_order, target, endog, exog)
+                if run.warning:
+                    st.warning(run.warning)
+            except Exception as exc:
+                st.error(f"Interactive model failed: {exc}")
+        else:
+            st.warning("Invalid model selection or too few test observations.")
+
+    return run, lag_table
+
+
+data = load_project_data()
+raw = data["raw"]
+model_df = data["model"]
+dummies = data["dummies"]
+modeling_df = modeling_frame(model_df, dummies)
+PLOT_TEMPLATE = None
+
+pages = [
+    "Overview",
+    "Stationarity and Data Preparation",
+    "Model Architecture and Direct Results",
+    "Forecast Comparison",
+    "Residual Diagnostics",
+    "Significance Analysis and Granger Causality",
+    "IRF and FEVD",
+    "Robustness",
+    "Code quality",
+]
+page = st.sidebar.radio("Dashboard page", pages, index=0)
+st.sidebar.caption("Model controls are on the main Model Architecture and Robustness pages.")
 
 
 st.title("VAR / VARX Macroeconomic Forecasting Dashboard")
-st.caption("Official baseline results plus interactive sensitivity analysis for VAR and VARX specifications.")
+st.caption("Inflation and macroeconomic policy analysis with VAR, VARX, and ML forecast benchmarks.")
 
-baseline_best = baseline_ranking.iloc[0]
-baseline_var_lag = architecture.loc[architecture["model"] == "VAR", "lag_order"].iloc[0]
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Raw observations", f"{len(raw):,}")
-col2.metric("Model observations", f"{len(model_df):,}")
-col3.metric("Official VAR lag", str(baseline_var_lag))
-col4.metric("Best baseline RMSE", f"{baseline_best['model']} ({baseline_best['rmse']:.3f})")
+metric_cols = st.columns(4)
+metric_cols[0].metric("Raw observations", f"{len(raw):,}")
+metric_cols[1].metric("Model observations", f"{len(model_df):,}")
+metric_cols[2].metric("Official VAR lag", "4")
+metric_cols[3].metric("Best RMSE model", data["ranking"].iloc[0]["model"])
 
-tabs = st.tabs(
-    [
-        "Official Baseline",
-        "Interactive Model Lab",
-        "Forecast Comparison",
-        "Diagnostics",
-        "VAR/SVAR Interpretation",
-        "Data Explorer",
-    ]
-)
 
-with tabs[0]:
-    st.subheader("Official Baseline Specification")
+if page == "Overview":
+    st.subheader("Project Overview")
     st.markdown(
         """
         <div class="note">
-        The notebook preserves one fixed official baseline for academic interpretation and reproducibility.
-        The dashboard's interactive lab is a sensitivity-analysis tool, not a replacement for the reported baseline.
+        This project studies U.S. inflation and macroeconomic policy dynamics using monthly FRED data.
+        The central question is whether a macroeconomic system can both forecast inflation and explain how
+        policy, labor-market, production, money, and sentiment shocks propagate over time.
         </div>
         """,
         unsafe_allow_html=True,
     )
-    st.dataframe(architecture, width="stretch", hide_index=True)
-    st.subheader("Cholesky Ordering for Baseline IRF/FEVD")
-    st.dataframe(ordering, width="stretch", hide_index=True)
-    st.subheader("Baseline Model Ranking")
-    st.dataframe(baseline_ranking.round(4), width="stretch", hide_index=True)
-
-with tabs[1]:
-    st.subheader("Interactive VAR / VARX Sensitivity Lab")
-    st.markdown(
-        """
-        <div class="note">
-        Change the split date, variables, model type, and lag order. The dashboard refits the model and updates forecasts,
-        residual diagnostics, stability, and parameter significance. VARX forecasts are conditional on the supplied future exogenous paths.
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    all_vars = list(model_df.columns)
-    default_split = model_df.index[-37].date()
-    split_date = st.date_input(
-        "Train/test split date: train on observations <= date, test on observations > date",
-        value=default_split,
-        min_value=model_df.index[60].date(),
-        max_value=model_df.index[-MIN_TEST_OBS - 1].date(),
-    )
-    split_ts = pd.Timestamp(split_date)
-    model_type = st.radio("Model type", ["VAR", "VARX"], horizontal=True)
-
-    default_endog = ["FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"] if model_type == "VAR" else ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH"]
-    endog = st.multiselect("Endogenous variables", all_vars, default=default_endog)
-
-    exog: list[str] = []
-    if model_type == "VARX":
-        available_exog = [var for var in all_vars if var not in endog]
-        exog = st.multiselect("Exogenous variables for VARX", available_exog, default=[var for var in ["FEDFUNDS", "SENTIMENT_CHANGE"] if var in available_exog])
-        overlap = sorted(set(endog) & set(exog))
-        if overlap:
-            st.error(f"Variables cannot be both endogenous and exogenous: {overlap}")
-            st.stop()
-
-    train_n = int((model_df.index <= split_ts).sum())
-    test_n = int((model_df.index > split_ts).sum())
-    min_endog = 2 if model_type == "VAR" else 1
-    if len(endog) < min_endog:
-        st.error(f"{model_type} requires at least {min_endog} endogenous variable(s).")
-        st.stop()
-    if test_n < MIN_TEST_OBS:
-        st.error("The test set is too short. Choose an earlier split date.")
-        st.stop()
-
-    dyn_max_lag = dynamic_max_lag(train_n, len(endog), len(exog))
-    max_lag = st.slider("Maximum lag considered for selection", 1, dyn_max_lag, min(4, dyn_max_lag))
-    data_json = model_df.to_json(date_format="iso", orient="split")
-    with st.spinner("Selecting lag order..."):
-        lag_table = select_lags_cached(data_json, str(split_ts.date()), model_type, tuple(endog), tuple(exog), max_lag)
-    lag_table = lag_table.dropna(subset=["AIC", "BIC", "HQIC"], how="all")
-    st.plotly_chart(plot_lag_table(lag_table), width="stretch", key="lab_lag_selection_plot")
-
-    selected_by = {}
-    for criterion in ["AIC", "BIC", "HQIC"]:
-        if criterion in lag_table and lag_table[criterion].notna().any():
-            selected_by[criterion] = int(lag_table.loc[lag_table[criterion].idxmin(), "lag"])
-    st.write("Selected lag by criterion:", selected_by)
-    default_lag = max(1, selected_by.get("AIC", 1))
-    lag_order = st.slider("Manual lag order used for refitting", 1, max_lag, min(default_lag, max_lag))
-
-    target_options = endog
-    target = st.selectbox("Forecast target shown in plots", target_options, index=target_options.index("INF") if "INF" in target_options else 0)
-
-    per_eq, total_params = parameter_count(len(endog), lag_order, len(exog))
-    dof_ratio = train_n / max(total_params, 1)
-    col_a, col_b, col_c, col_d = st.columns(4)
-    col_a.metric("Training obs.", f"{train_n}")
-    col_b.metric("Test obs.", f"{test_n}")
-    col_c.metric("Parameters/equation", f"{per_eq}")
-    col_d.metric("Obs./total parameter", f"{dof_ratio:.2f}")
-    if dof_ratio < 5 or per_eq > train_n / 4:
-        st.warning("Overparameterization risk: parameter count is high relative to the training sample. Forecasts and stability may be unreliable.")
-
-    with st.spinner("Refitting model..."):
-        try:
-            payload = fit_model_cached(data_json, str(split_ts.date()), model_type, tuple(endog), tuple(exog), lag_order, target)
-            run = unpack_model_run(payload, model_type, lag_order, target, endog, exog)
-        except Exception as exc:
-            st.error(f"Model could not be fitted: {exc}")
-            st.stop()
-
-    st.session_state["interactive_run"] = run
-    if run.warning:
-        st.warning(run.warning)
-    if run.stable is False:
-        st.error("The fitted system is unstable. Interpret forecasts, IRFs, and FEVD with extreme caution.")
-    elif run.stable is True:
-        st.success("The fitted dynamic system is stable under the selected specification.")
-
-    st.subheader("Interactive Forecast")
-    st.plotly_chart(plot_forecasts(run), width="stretch", key="lab_forecast_plot")
-    st.dataframe(run.metrics.round(4), width="stretch", hide_index=True)
-
-    ml_features = sorted(set(endog + exog))
-    if target in model_df.columns:
-        ml = ml_benchmark(model_df, split_ts, ml_features, target, lag_order)
-        if not ml.empty:
-            st.subheader("ML Benchmark for Same Split and Target")
-            merged_metrics = pd.concat(
-                [
-                    run.metrics.assign(model=model_type).rename(columns={"variable": "target"}),
-                    ml.assign(target=target),
-                ],
-                ignore_index=True,
-                sort=False,
-            )
-            st.dataframe(merged_metrics.round(4), width="stretch", hide_index=True)
-
-with tabs[2]:
-    st.subheader("Forecast Comparison")
-    run = st.session_state.get("interactive_run")
-    if run is None:
-        st.info("Configure and run a model in the Interactive Model Lab tab first.")
-    else:
-        st.plotly_chart(plot_forecasts(run), width="stretch", key="comparison_forecast_plot")
-        st.dataframe(run.metrics.round(4), width="stretch", hide_index=True)
+    c1, c2 = st.columns(2)
+    with c1:
         st.markdown(
             """
-            <div class="note">
-            VAR forecasts are generated from endogenous joint dynamics. VARX forecasts condition on observed or assumed future exogenous paths.
-            This is useful for scenario forecasting, but it is not a pure real-time forecast unless the future exogenous variables are themselves forecasted.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            **Why this matters**
 
-with tabs[3]:
-    st.subheader("Interactive Residual Diagnostics")
-    run = st.session_state.get("interactive_run")
-    if run is None:
-        st.info("Configure and run a model in the Interactive Model Lab tab first.")
+            Inflation forecasting matters because it affects monetary policy, wage bargaining, investment,
+            interest-rate expectations, and real purchasing power. A useful project should therefore do more
+            than minimize forecast error: it should also explain channels of adjustment.
+            """
+        )
+    with c2:
+        st.markdown(
+            """
+            **Why VAR and VARX**
+
+            VAR models joint macroeconomic dynamics among endogenous variables. VARX models condition forecasts
+            on externally supplied policy, sentiment, or crisis paths. Machine-learning models are kept as
+            predictive benchmarks, not as substitutes for policy interpretation.
+            """
+        )
+    st.subheader("Dataset and Final Goals")
+    if not data["variable_dictionary"].empty:
+        st.dataframe(data["variable_dictionary"], width="stretch", hide_index=True)
+    st.markdown(
+        """
+        Final goals:
+
+        - model macroeconomic dynamics;
+        - forecast inflation and other macro variables;
+        - analyze shocks through IRF and FEVD;
+        - compare econometric forecasts with ML benchmarks;
+        - report negative diagnostic results transparently instead of hiding model limitations.
+        """
+    )
+    st.subheader("Official Baseline Model")
+    st.markdown(
+        """
+        The official report keeps one fixed baseline specification for reproducibility. The dashboard's
+        interactive controls are for sensitivity analysis, not for replacing the reported model.
+        """
+    )
+    st.dataframe(data["architecture"], width="stretch", hide_index=True)
+    if not data["comparison"].empty:
+        st.write("Official VAR/VARX diagnostic comparison")
+        st.dataframe(
+            test_table(
+                data["comparison"],
+                "stable system, reasonable parameter count, and lower forecast error are preferred",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+    if not data["optimized_specs"].empty:
+        st.subheader("Optimized Model Selection")
+        st.markdown(
+            """
+            These specifications come from the controlled search in `src/model_optimization.py`.
+            They are selected by a balanced rule using stability, residual diagnostics, forecast performance,
+            parameter count, and economic interpretability.
+            """
+        )
+        optimized_cols = [
+            "model_type",
+            "candidate_name",
+            "lag_order",
+            "dummy_specification",
+            "endogenous_variables",
+            "exogenous_variables",
+            "selection_score",
+            "stable",
+            "portmanteau_whiteness_p_value",
+            "inflation_RMSE",
+            "mean_relative_RMSE_vs_naive",
+        ]
+        st.dataframe(
+            round_numeric(data["optimized_specs"][[c for c in optimized_cols if c in data["optimized_specs"].columns]]),
+            width="stretch",
+            hide_index=True,
+        )
+        if not data["optimized_ranking"].empty:
+            st.write("Top optimized candidates")
+            ranking_cols = [
+                "model_type",
+                "candidate_name",
+                "dummy_specification",
+                "lag_order",
+                "selection_score",
+                "stable",
+                "acf_exceedance_share",
+                "inflation_RMSE",
+                "obs_per_parameter_per_equation",
+            ]
+            st.dataframe(
+                round_numeric(
+                    data["optimized_ranking"]
+                    .sort_values("selection_score", ascending=False)
+                    [[c for c in ranking_cols if c in data["optimized_ranking"].columns]]
+                    .head(12)
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+
+elif page == "Stationarity and Data Preparation":
+    st.subheader("A. Original Raw Data Checks")
+    raw_defaults = [v for v in ["CPI", "UNRATE", "FEDFUNDS", "INDPRO", "M2", "UMCSENT"] if v in raw.columns]
+    raw_vars = st.multiselect("Raw variables", list(raw.columns), default=raw_defaults)
+    if raw_vars:
+        st.plotly_chart(plot_time_series(raw, raw_vars, "Original FRED Series"), width="stretch", key="raw_series")
+    stationarity = stationarity_payload(dataframe_to_json(raw), dataframe_to_json(model_df))
+    raw_kpss = pd.read_json(StringIO(stationarity["raw_kpss"]), orient="split")
+    model_kpss = pd.read_json(StringIO(stationarity["model_kpss"]), orient="split")
+    integration = pd.read_json(StringIO(stationarity["integration"]), orient="split")
+    st.write("Raw ADF tests")
+    st.dataframe(test_table(data["raw_adf"], "ADF p-value < 0.05 supports stationarity"), width="stretch", hide_index=True)
+    st.write("Raw KPSS tests")
+    st.dataframe(round_numeric(raw_kpss), width="stretch", hide_index=True)
+
+    st.subheader("B. Integration Order Checks")
+    st.markdown(
+        """
+        Decision rule: ADF rejects a unit root when `p < 0.05`; KPSS supports stationarity when `p > 0.05`.
+        Variables are classified as `I(0)` if they pass these rules in levels and `I(1)` if the first difference passes.
+        Mixed results are reported as potentially problematic rather than forced into a clean category.
+        """
+    )
+    st.dataframe(round_numeric(integration), width="stretch", hide_index=True)
+
+    st.subheader("C. Cointegration Checks")
+    if not data["cointegration"].empty:
+        st.dataframe(
+            test_table(data["cointegration"], "residual ADF p-value < 0.05 supports pairwise cointegration"),
+            width="stretch",
+            hide_index=True,
+        )
+    st.markdown(
+        """
+        The project uses transformed stationary variables for VAR/VARX because broad cointegration support is not
+        established among the relevant non-stationary level variables. Without a defensible cointegrating system,
+        a VECM would impose long-run restrictions that are not supported by these tests.
+        """
+    )
+
+    st.subheader("D. Final Transformed Variables")
+    transformation_table = pd.DataFrame(
+        [
+            ["INF", "log(CPI).diff() * 100", "monthly inflation"],
+            ["FEDFUNDS", "level", "monetary-policy rate"],
+            ["UNRATE", "level", "labor-market slack"],
+            ["INDPRO_GROWTH", "log(INDPRO).diff() * 100", "real-activity growth"],
+            ["M2_GROWTH", "log(M2).diff() * 100", "money-growth channel"],
+            ["SENTIMENT_CHANGE", "UMCSENT.diff()", "expectations/sentiment change"],
+        ],
+        columns=["model_variable", "construction", "economic_role"],
+    )
+    st.dataframe(transformation_table, width="stretch", hide_index=True)
+    transformed_vars = st.multiselect("Variables in summary plot", list(model_df.columns), default=list(model_df.columns))
+    if transformed_vars:
+        st.plotly_chart(plot_time_series(model_df, transformed_vars, "Final Modeling Variables"), width="stretch", key="model_series")
+        st.plotly_chart(plot_heatmap(model_df[transformed_vars].corr(), "Transformed Variable Correlation", zmin=-1, zmax=1), width="stretch", key="model_corr")
+
+    selected_transformed = st.selectbox(
+        "Selected transformed variable for stationarity diagnostics",
+        list(model_df.columns),
+        index=list(model_df.columns).index("INF") if "INF" in model_df.columns else 0,
+    )
+    st.plotly_chart(
+        plot_time_series(model_df, [selected_transformed], f"{selected_transformed} Time Series"),
+        width="stretch",
+        key="selected_model_series",
+    )
+
+    selected_adf = data["transformed_adf"].loc[data["transformed_adf"]["variable"] == selected_transformed].copy()
+    selected_kpss = model_kpss.loc[model_kpss["variable"] == selected_transformed].copy()
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write("ADF result")
+        st.dataframe(test_table(selected_adf, "ADF p-value < 0.05 supports stationarity"), width="stretch", hide_index=True)
+    with c2:
+        st.write("KPSS result")
+        st.dataframe(test_table(selected_kpss, "KPSS p-value > 0.05 supports stationarity"), width="stretch", hide_index=True)
+
+    adf_stationary = bool(selected_adf["p_value"].iloc[0] < 0.05) if not selected_adf.empty else False
+    kpss_stationary = bool(selected_kpss["p_value"].iloc[0] > 0.05) if not selected_kpss.empty and pd.notna(selected_kpss["p_value"].iloc[0]) else False
+    if adf_stationary and kpss_stationary:
+        st.success(f"{selected_transformed} passes both ADF and KPSS stationarity rules and is suitable for VAR/VARX modeling.")
+    elif adf_stationary:
+        st.warning(
+            f"{selected_transformed} passes the ADF rule but does not clearly pass KPSS. Treat it as usable with caution and check residual diagnostics."
+        )
     else:
-        st.plotly_chart(
-            plot_time_series(run.residuals, list(run.residuals.columns), "Residual Time Series"),
-            width="stretch",
-            key="diagnostics_residual_timeseries",
-        )
-        equation = st.selectbox("Equation for residual ACF", list(run.residuals.columns))
-        acf_df = acf_values(run.residuals[equation], max_lag=24)
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=acf_df["lag"], y=acf_df["acf"], marker_color=np.where(acf_df["outside_bound"], "#b45309", "#315c7c"), name="ACF"))
-        fig.add_trace(go.Scatter(x=acf_df["lag"], y=acf_df["upper"], mode="lines", line=dict(color="red", dash="dash"), name="95% bound"))
-        fig.add_trace(go.Scatter(x=acf_df["lag"], y=acf_df["lower"], mode="lines", line=dict(color="red", dash="dash"), showlegend=False))
-        fig.update_layout(title=f"Residual ACF: {equation}", template=PLOT_TEMPLATE, height=420)
-        st.plotly_chart(fig, width="stretch", key=f"diagnostics_acf_{equation}")
-
-        ccf = residual_ccf_matrix(run.residuals, max_lag=12)
-        st.plotly_chart(
-            plot_heatmap(ccf, "Max Absolute Residual Cross-Correlation by Equation Pair", colorscale="Blues", zmin=0),
-            width="stretch",
-            key="diagnostics_ccf_heatmap",
+        st.warning(
+            f"{selected_transformed} does not clearly satisfy the stationarity rules. VAR/VARX results for this variable should be interpreted cautiously."
         )
 
-        diag_rows = []
-        for col in run.residuals.columns:
-            lb = acorr_ljungbox(run.residuals[col].dropna(), lags=[min(12, max(1, len(run.residuals) // 5))], return_df=True)
-            diag_rows.append(
+    acf_df, pacf_df = series_acf_pacf_values(model_df[selected_transformed], max_lag=36)
+    c3, c4 = st.columns(2)
+    with c3:
+        st.plotly_chart(plot_correlogram(acf_df, f"ACF: {selected_transformed}"), width="stretch", key="selected_acf")
+    with c4:
+        st.plotly_chart(plot_correlogram(pacf_df, f"PACF: {selected_transformed}"), width="stretch", key="selected_pacf")
+    st.caption("ACF/PACF bars outside the dashed confidence bands indicate remaining serial dependence at that lag.")
+
+    with st.expander("All transformed stationarity tests", expanded=False):
+        st.write("Transformed ADF tests")
+        st.dataframe(test_table(data["transformed_adf"], "ADF p-value < 0.05 supports stationarity"), width="stretch", hide_index=True)
+        st.write("Transformed KPSS tests")
+        st.dataframe(test_table(model_kpss, "KPSS p-value > 0.05 supports stationarity"), width="stretch", hide_index=True)
+
+elif page == "Model Architecture and Direct Results":
+    interactive_run, interactive_lag_table = interactive_model_control_form(
+        "architecture_interactive",
+        "Interactive Model Definition",
+    )
+    if not interactive_lag_table.empty:
+        st.subheader("Lag Selection Results")
+        st.write("Best lag by criterion")
+        st.dataframe(round_numeric(lag_selection_summary(interactive_lag_table)), width="stretch", hide_index=True)
+        st.write("Full lag-selection table")
+        st.plotly_chart(plot_lag_table(interactive_lag_table), width="stretch", key="interactive_arch_lag_plot")
+        st.dataframe(
+            test_table(
+                interactive_lag_table,
+                "Lower AIC/BIC/HQIC is preferred; final lag must preserve degrees of freedom",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+    if interactive_run is not None:
+        st.subheader("Dynamic Model Results")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Model type", interactive_run.model_type)
+        c2.metric("Lag order", str(interactive_run.lag_order))
+        c3.metric("Train obs.", f"{len(interactive_run.train):,}")
+        c4.metric("Test obs.", f"{len(interactive_run.test):,}")
+        spec_table = pd.DataFrame(
+            [
                 {
-                    "equation": col,
-                    "durbin_watson": durbin_watson(run.residuals[col].dropna()),
-                    "ljung_box_p_value": lb["lb_pvalue"].iloc[0],
-                    "arch_lm_p_value": safe_arch_pvalue(run.residuals[col]),
+                    "model_type": interactive_run.model_type,
+                    "endogenous_variables": ", ".join(interactive_run.endog),
+                    "exogenous_variables": ", ".join(interactive_run.exog) if interactive_run.exog else "none",
+                    "train_start": interactive_run.train.index.min().strftime("%Y-%m"),
+                    "train_end": interactive_run.train.index.max().strftime("%Y-%m"),
+                    "test_start": interactive_run.test.index.min().strftime("%Y-%m"),
+                    "test_end": interactive_run.test.index.max().strftime("%Y-%m"),
+                    "target": interactive_run.target,
                 }
-            )
-        st.dataframe(pd.DataFrame(diag_rows).round(4), width="stretch", hide_index=True)
+            ]
+        )
+        st.dataframe(spec_table, width="stretch", hide_index=True)
+        st.write("Model fit information")
+        st.dataframe(round_numeric(interactive_run.fit_info), width="stretch", hide_index=True)
+        st.write("Equation-level fit metrics")
+        st.dataframe(round_numeric(interactive_run.fit_metrics), width="stretch", hide_index=True)
+        st.write("Forecast metrics")
+        st.dataframe(round_numeric(interactive_run.metrics), width="stretch", hide_index=True)
+        st.write("Stability roots")
+        st.dataframe(
+            test_table(interactive_run.roots, "inverse companion-root modulus < 1 indicates stability in this display"),
+            width="stretch",
+            hide_index=True,
+        )
+        if interactive_run.stable is False:
+            st.warning("The selected dynamic specification is unstable. Interpret forecasts and responses with caution.")
+        st.write("Coefficient and parameter significance table")
+        st.dataframe(round_numeric(interactive_run.parameter_table), width="stretch", hide_index=True)
+        st.plotly_chart(plot_forecast_run(interactive_run), width="stretch", key="interactive_arch_forecast")
+
+elif page == "Forecast Comparison":
+    st.subheader("VAR and VARX Forecasts for Modeled Variables")
+    forecast_payload = official_forecasts_payload(dataframe_to_json(model_df), dataframe_to_json(dummies))
+    varvarx_forecasts = dataframe_from_json(forecast_payload["forecasts"]).reset_index()
+    varvarx_forecasts = varvarx_forecasts.rename(columns={"index": "date"})
+    varvarx_metrics = pd.read_json(StringIO(forecast_payload["metrics"]), orient="split")
+    variables = sorted(varvarx_forecasts["variable"].unique())
+    forecast_variable = st.selectbox("Forecast variable", variables, index=variables.index("INF") if "INF" in variables else 0)
+    st.plotly_chart(plot_var_varx_forecast(varvarx_forecasts, forecast_variable), width="stretch", key="var_varx_variable_forecast")
+    st.dataframe(
+        round_numeric(varvarx_metrics.loc[varvarx_metrics["variable"] == forecast_variable].sort_values("RMSE")),
+        width="stretch",
+        hide_index=True,
+    )
+    st.write("All VAR/VARX variable forecast metrics")
+    st.dataframe(round_numeric(varvarx_metrics), width="stretch", hide_index=True)
+
+    st.subheader("Inflation Forecast Comparison Across All Models")
+    forecasts = combined_inflation_forecasts(data["econ_forecasts"], data["ml_forecasts"])
+    if not forecasts.empty:
+        available_models = [c for c in forecasts.columns if c not in {"Actual INF", "actual_INF"}]
+        selected_models = st.multiselect("Inflation models shown", available_models, default=available_models)
+        st.plotly_chart(plot_forecast_lines(forecasts, selected_models, "Actual Inflation and All Model Forecasts"), width="stretch", key="all_model_forecasts")
+    ranking = data["ranking"].rename(columns={"rmse": "RMSE", "mae": "MAE"})
+    st.dataframe(test_table(ranking, "Lower RMSE/MAE is better; higher directional accuracy is better"), width="stretch", hide_index=True)
+    if not data["multihorizon"].empty:
+        horizon = st.selectbox("Horizon-specific inflation metrics", sorted(data["multihorizon"]["horizon"].unique()))
+        horizon_table = data["multihorizon"].loc[data["multihorizon"]["horizon"] == horizon].sort_values("rmse")
+        st.dataframe(test_table(horizon_table, "Lower RMSE/MAE and relative RMSE < 1 are better"), width="stretch", hide_index=True)
+        fig = px.line(data["multihorizon"], x="horizon", y="rmse", color="model", markers=True, title="Inflation RMSE by Horizon")
+        fig.update_layout(height=430)
+        st.plotly_chart(fig, width="stretch", key="horizon_rmse")
+
+elif page == "Residual Diagnostics":
+    st.subheader("Residual Diagnostics")
+    st.markdown(
+        """
+        Autocorrelation diagnostics ignore lag 0 because a series is always perfectly correlated with itself at lag 0.
+        Cross-correlation between different residual equations includes lag 0 because contemporaneous residual dependence is meaningful.
+        """
+    )
+    model_label = st.radio("Model", ["VAR", "VARX"], horizontal=True)
+    baseline = baseline_residual_run(model_label)
+    residuals = dataframe_from_json(baseline["residuals"])
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Stable", "Yes" if baseline["stable"] else "No")
+    c2.metric("Portmanteau p-value", f"{baseline['whiteness_p']:.4g}" if baseline["whiteness_p"] is not None else "n/a")
+    c3.metric("Normality p-value", f"{baseline['normality_p']:.4g}" if baseline["normality_p"] is not None else "n/a")
+    if baseline["whiteness_p"] is not None and baseline["whiteness_p"] < 0.05:
+        st.warning("Whiteness is rejected. Residual dependence remains; forecast and IRF interpretation should be cautious.")
+    st.plotly_chart(plot_time_series(residuals, list(residuals.columns), f"{model_label} Residual Time Series"), width="stretch", key="resid_ts")
+    equation = st.selectbox("Residual equation", list(residuals.columns))
+    st.plotly_chart(plot_acf(acf_values(residuals[equation]), equation), width="stretch", key="resid_acf")
+    st.dataframe(round_numeric(residual_test_table(residuals)), width="stretch", hide_index=True)
+
+    st.subheader("Lagged Residual Cross-Correlation")
+    ccf_summary = residual_cross_correlation_summary(residuals, max_lag=12)
+    if not ccf_summary.empty:
+        ccf_heatmap = signed_ccf_heatmap(ccf_summary)
+        st.plotly_chart(plot_heatmap(ccf_heatmap, "Signed CCF at Maximum Absolute Lag", zmin=-1, zmax=1), width="stretch", key="resid_ccf_heatmap")
+        st.dataframe(round_numeric(ccf_summary.sort_values("max_abs_ccf", ascending=False)), width="stretch", hide_index=True)
+        pair_source = st.selectbox("CCF source residual", list(residuals.columns), key=f"ccf_source_{model_label}")
+        pair_target = st.selectbox(
+            "CCF target residual",
+            list(residuals.columns),
+            index=min(1, len(residuals.columns) - 1),
+            key=f"ccf_target_{model_label}",
+        )
+        ccf_values = residual_cross_correlation_values(residuals, pair_source, pair_target, max_lag=12)
+        st.plotly_chart(
+            plot_cross_correlation_lags(ccf_values, f"Lagged CCF: {pair_source} and {pair_target}"),
+            width="stretch",
+            key="resid_ccf_lags",
+        )
+
+    st.subheader("Normality and Heteroskedasticity")
+    st.plotly_chart(plot_residual_distribution(residuals, equation), width="stretch", key="resid_dist")
+    st.dataframe(round_numeric(residual_normality_table(residuals)), width="stretch", hide_index=True)
+    norm_table = data["var_norm"] if model_label == "VAR" else data["varx_norm"]
+    het_table = data["var_het"] if model_label == "VAR" else data["varx_het"]
+    st.dataframe(test_table(norm_table, "Jarque-Bera/system normality p-value > 0.05 is preferred"), width="stretch", hide_index=True)
+    st.dataframe(test_table(het_table, "ARCH/Breusch-Pagan/White p-values > 0.05 are preferred for homoskedastic residuals"), width="stretch", hide_index=True)
+
+elif page == "Significance Analysis and Granger Causality":
+    st.subheader("Part A: Parameter Significance Analysis")
+    sig_model = st.radio("Significance model", ["VAR", "VARX"], horizontal=True)
+    table = data["var_sig"] if sig_model == "VAR" else data["varx_sig"]
+    robust = data["var_robust"] if sig_model == "VAR" else data["varx_robust"]
+    st.markdown(
+        """
+        Parameter p-values show whether individual lag coefficients are statistically different from zero.
+        In VAR and VARX systems, individual coefficients are useful supporting evidence, but they are often
+        hard to interpret directly because each equation contains many correlated lags.
+        """
+    )
+    st.dataframe(test_table(table, "p-value < 0.05 indicates statistical significance; interpret individual coefficients cautiously"), width="stretch", hide_index=True)
+    st.write("Robust p-value sensitivity")
+    if not robust.empty:
+        changed = robust.loc[robust["significance_changed_hc3"] | robust["significance_changed_hac"]]
+        st.dataframe(test_table(changed, "stable significance under classical, HC3, and HAC p-values is stronger evidence"), width="stretch", hide_index=True)
+
+    st.subheader("Part B: Granger Causality")
+    granger = data["granger"].copy()
+    granger = add_rule_column(granger, "p-value < 0.05 indicates Granger/predictive causality, not structural causality")
+    if "significant_at_5pct" in granger:
+        granger["significant"] = np.where(granger["significant_at_5pct"], "yes", "no")
+    st.plotly_chart(plot_granger_heatmap(data["granger"]), width="stretch", key="granger_heatmap")
+    st.dataframe(round_numeric(granger.sort_values("p_value")), width="stretch", hide_index=True)
+    st.markdown(
+        """
+        Granger results help identify predictive channels and can support the economic motivation for the
+        Cholesky ordering. They do not prove structural causality.
+        """
+    )
+
+elif page == "IRF and FEVD":
+    st.subheader("IRF and FEVD")
+    model_choice = st.radio("Response model", ["VAR", "VARX"], horizontal=True)
+    horizon = st.slider("Horizon", 1, 36, 24)
+    if model_choice == "VAR":
         st.markdown(
             """
-            <div class="note">
-            Macro VAR residuals are rarely perfectly white. The practical goal is reasonable adequacy, reduced serial dependence,
-            and transparent discussion of remaining limitations.
+            <div class="warn">
+            VAR IRFs use recursive Cholesky identification. Ordering affects short-run responses, so these are conditional structural interpretations.
             </div>
             """,
             unsafe_allow_html=True,
         )
-
-with tabs[4]:
-    st.subheader("VAR/SVAR Interpretation")
-    run = st.session_state.get("interactive_run")
-    if run is None:
-        st.info("Configure and run a VAR model in the Interactive Model Lab tab first.")
-    elif run.model_type != "VAR" or len(run.endog) < 2:
-        st.info("IRF and FEVD are available only for VAR specifications with at least two endogenous variables.")
+        st.dataframe(data["ordering"], width="stretch", hide_index=True)
+        endog_order = st.text_input("Cholesky order", value=", ".join(VAR_COLUMNS))
+        order = [x.strip() for x in endog_order.split(",") if x.strip()]
+        if sorted(order) != sorted(VAR_COLUMNS):
+            st.error("Ordering must contain the official VAR variables exactly once.")
+        else:
+            fitted = VAR(model_df[order], exog=dummies[["D_2008", "D_COVID"]]).fit(4, trend="c")
+            irf_df = var_irf_paths(fitted, horizon)
+            shock = st.selectbox("Shock variable", order, index=order.index("FEDFUNDS"))
+            st.plotly_chart(
+                plot_response_grid(irf_df, shock, f"VAR IRFs: All Responses to {shock} Shock"),
+                width="stretch",
+                key="var_irf_grid",
+            )
+            st.dataframe(
+                test_table(
+                    irf_df.loc[irf_df["shock"] == shock],
+                    "interpret responses as Cholesky-identified conditional dynamics; ordering affects short-run results",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+            fevd_df = var_fevd_paths(fitted, horizon)
+            fevd_response = st.selectbox("FEVD response", order, index=order.index("INF"))
+            fig = px.area(fevd_df.query("response == @fevd_response"), x="horizon", y="variance_share", color="shock", title=f"FEVD for {fevd_response}")
+            st.plotly_chart(fig, width="stretch", key="var_fevd")
     else:
         st.markdown(
             """
             <div class="warn">
-            IRFs depend strongly on identification assumptions. Cholesky ordering changes short-run responses,
-            so compare alternative orderings before making strong policy claims.
+            VARX responses are conditional scenario responses, not standard structural IRFs. Exogenous paths are assumed and shocked externally.
             </div>
             """,
             unsafe_allow_html=True,
         )
-        order_text = st.text_input("Cholesky order, comma-separated", value=", ".join(run.endog))
-        order = [x.strip() for x in order_text.split(",") if x.strip()]
-        if sorted(order) != sorted(run.endog):
-            st.error("Ordering must contain exactly the selected endogenous variables once.")
-        elif run.stable is False:
-            st.error("IRF/FEVD hidden because the selected VAR is unstable.")
-        else:
-            try:
-                ordered_train = run.train[order]
-                fitted = VAR(ordered_train).fit(run.lag_order, trend="c")
-                horizon = st.slider("IRF/FEVD horizon", 1, 36, 24)
-                irf = fitted.irf(horizon)
-                paths = []
-                for response_idx, response in enumerate(order):
-                    for shock_idx, shock in enumerate(order):
-                        for h, value in enumerate(irf.orth_irfs[:, response_idx, shock_idx]):
-                            paths.append({"response": response, "shock": shock, "horizon": h, "value": value})
-                irf_df = pd.DataFrame(paths)
-                shock = st.selectbox("Shock", order, index=0)
-                responses = st.multiselect("Responses", order, default=order[: min(4, len(order))])
-                fig = go.Figure()
-                for response in responses:
-                    subset = irf_df.query("shock == @shock and response == @response")
-                    fig.add_trace(go.Scatter(x=subset["horizon"], y=subset["value"], mode="lines+markers", name=response))
-                fig.add_hline(y=0, line_dash="dash", line_color="black")
-                fig.update_layout(title=f"Orthogonalized IRF to {shock} Shock", template=PLOT_TEMPLATE, height=500)
-                st.plotly_chart(fig, width="stretch", key=f"irf_{impulse}_{response}")
-
-                fevd = fitted.fevd(horizon)
-                fevd_rows = []
-                for response_idx, response in enumerate(order):
-                    for h in range(1, horizon + 1):
-                        for shock_idx, shock_name in enumerate(order):
-                            fevd_rows.append({"response": response, "horizon": h, "shock": shock_name, "variance_share": fevd.decomp[response_idx, h - 1, shock_idx]})
-                fevd_df = pd.DataFrame(fevd_rows)
-                fevd_response = st.selectbox("FEVD response", order, index=order.index(run.target) if run.target in order else 0)
-                fig = px.area(fevd_df.query("response == @fevd_response"), x="horizon", y="variance_share", color="shock", template=PLOT_TEMPLATE, title=f"FEVD for {fevd_response}")
-                fig.update_layout(height=500, yaxis_tickformat=".0%")
-                st.plotly_chart(fig, width="stretch", key=f"fevd_{fevd_var}")
-            except Exception as exc:
-                st.error(f"IRF/FEVD could not be computed: {exc}")
-
-with tabs[5]:
-    st.subheader("Data Explorer")
-    dataset = st.radio("Dataset", ["Transformed model data", "Raw FRED data"], horizontal=True)
-    df = model_df if dataset == "Transformed model data" else raw
-    default_vars = ["INF", "UNRATE", "FEDFUNDS"] if dataset == "Transformed model data" else ["CPI", "UNRATE", "FEDFUNDS"]
-    variables = st.multiselect("Variables", list(df.columns), default=[v for v in default_vars if v in df.columns])
-    if variables:
-        st.plotly_chart(plot_time_series(df, variables, "Selected Time Series"), width="stretch", key="explorer_time_series")
-        st.plotly_chart(
-            plot_heatmap(df[variables].corr(), "Correlation Matrix", colorscale="RdBu", zmin=-1, zmax=1),
-            width="stretch",
-            key="explorer_correlation_heatmap",
+        exog_data = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
+        fitted = VAR(model_df[VARX_ENDOG], exog=exog_data).fit(4, trend="c")
+        shock = st.selectbox("Exogenous scenario shock", list(exog_data.columns), index=0)
+        response_df = varx_exogenous_scenario_response(fitted, model_df[VARX_ENDOG], list(exog_data.columns), shock, horizon)
+        st.markdown(
+            """
+            The shock is applied to an exogenous variable for one month. The plotted values are the difference between
+            a shocked exogenous path and a zero-deviation baseline path, propagated through the VARX equations.
+            """
         )
+        if response_df.empty:
+            st.warning("No VARX scenario response is available for this specification.")
+        else:
+            st.plotly_chart(
+                plot_response_grid(response_df, shock, f"VARX Conditional Scenario Responses to {shock} Shock"),
+                width="stretch",
+                key="varx_response_grid",
+            )
+            st.dataframe(
+                test_table(response_df, "VARX scenario responses depend on assumed future exogenous paths, not structural identification"),
+                width="stretch",
+                hide_index=True,
+            )
+
+elif page == "Robustness":
+    st.subheader("Robustness and Sensitivity")
+    st.write("Alternative lag choices")
+    if not data["lag_robustness"].empty:
+        st.dataframe(test_table(data["lag_robustness"], "stable system, fewer ACF exceedances, lower IC values, and whiteness p-value > 0.05 are preferred"), width="stretch", hide_index=True)
+    st.write("Alternative train/test split")
+    robustness_run, robustness_lag_table = interactive_model_control_form(
+        "robustness_interactive",
+        "Interactive Train/Test Sensitivity Control Form",
+    )
+    if not robustness_lag_table.empty:
+        st.write("Sensitivity lag selection")
+        st.dataframe(
+            test_table(
+                robustness_lag_table,
+                "Lower AIC/BIC/HQIC is preferred; final lag must preserve degrees of freedom",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+    if robustness_run is not None:
+        st.dataframe(round_numeric(robustness_run.metrics), width="stretch", hide_index=True)
+        st.plotly_chart(plot_forecast_run(robustness_run), width="stretch", key="robust_interactive_forecast")
+    if not data["crisis"].empty:
+        st.write("Crisis dummy robustness")
+        st.dataframe(test_table(data["crisis"], "lower AIC/BIC/RMSE is better; whiteness p-value > 0.05 is preferred"), width="stretch", hide_index=True)
+    if not data["multihorizon"].empty:
+        st.write("Forecast robustness across horizons")
+        st.dataframe(test_table(data["multihorizon"], "lower RMSE/MAE and relative RMSE < 1 are better"), width="stretch", hide_index=True)
+    if not data["dm"].empty:
+        st.write("Diebold-Mariano tests")
+        st.dataframe(test_table(data["dm"], "p-value < 0.05 rejects equal forecast accuracy against benchmark"), width="stretch", hide_index=True)
+    if not data["expanding"].empty:
+        relationship = st.selectbox("Expanding-window relationship", sorted(data["expanding"]["relationship"].unique()))
+        subset = data["expanding"].loc[data["expanding"]["relationship"] == relationship].copy()
+        subset["window_end"] = pd.to_datetime(subset["window_end"])
+        fig = px.line(subset, x="window_end", y="coefficient_L1", markers=True, title=f"Expanding-Window Coefficient: {relationship}")
+        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+        st.plotly_chart(fig, width="stretch", key="expanding_coef")
+        st.dataframe(test_table(subset, "stable signs/significance across windows indicate stronger regime robustness"), width="stretch", hide_index=True)
+    if not data["regime"].empty:
+        st.write("Pre-COVID / full-sample and regime split comparison")
+        st.dataframe(test_table(data["regime"], "stable signs/significance across regimes indicate stronger robustness"), width="stretch", hide_index=True)
+    if not data["irf_robustness"].empty:
+        st.write("Alternative Cholesky ordering")
+        response = st.selectbox("IRF ordering response", sorted(data["irf_robustness"]["response"].unique()))
+        subset = data["irf_robustness"].loc[data["irf_robustness"]["response"] == response]
+        fig = px.bar(subset, x="ordering_name", y="response_h6", title=f"{response} response to FEDFUNDS shock at horizon 6")
+        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+        st.plotly_chart(fig, width="stretch", key="irf_robust_order")
+        st.dataframe(test_table(subset, "similar response signs across orderings indicate stronger IRF robustness"), width="stretch", hide_index=True)
+
+elif page == "Code quality":
+    st.subheader("Code Quality and Project Structure")
+    modules = pd.DataFrame(
+        [
+            ["dashboard_app.py", "Streamlit UI and page routing only"],
+            ["src/data.py", "cached data loading and project-table access"],
+            ["src/models_var.py", "VAR fitting, forecast objects, IRF/FEVD helpers, equation fit metrics"],
+            ["src/models_varx.py", "VARX fitting and conditional scenario-response helpers"],
+            ["src/diagnostics.py", "stationarity, residual tests, ACF and lagged CCF diagnostics"],
+            ["src/forecasting.py", "forecast metrics, ML helpers, official VAR/VARX forecast comparison"],
+            ["src/model_optimization.py", "controlled VAR/VARX specification search and context-file generation"],
+            ["src/visualization.py", "Plotly figure builders"],
+            ["src/advanced_macro_var_analysis.py", "reproducible academic pipeline and output generation"],
+        ],
+        columns=["file", "responsibility"],
+    )
+    st.dataframe(modules, width="stretch", hide_index=True)
+    st.markdown(
+        """
+        Performance choices:
+
+        - project data loading is cached;
+        - lag selection and interactive model fitting are cached by selected variables, split date, model type, and lag;
+        - official VAR/VARX forecast comparison is cached;
+        - real-time IRF and VARX scenario-response displays avoid expensive bootstrap recomputation;
+        - residual CCF summaries are computed from cached residuals and include lag 0 only for cross-equation correlations.
+        - optimized model-selection outputs are precomputed by `src/model_optimization.py` and loaded as dashboard tables.
+
+        Validation rules in the main-page control forms prevent overlapping endogenous/exogenous selections, too few endogenous variables,
+        too few test observations, and obviously overparameterized choices.
+        """
+    )
+    st.code(
+        ".venv/bin/python -m py_compile dashboard_app.py src/*.py\n"
+        ".venv/bin/python -m src.model_optimization\n"
+        ".venv/bin/jupyter nbconvert --to notebook --execute macro_time_series_project.ipynb --output macro_time_series_project.ipynb\n"
+        ".venv/bin/streamlit run dashboard_app.py --server.address 127.0.0.1 --server.port 8501",
+        language="bash",
+    )

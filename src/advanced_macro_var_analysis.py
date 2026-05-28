@@ -15,14 +15,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 from pandas.plotting import scatter_matrix
+from scipy import stats
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from statsmodels.graphics.gofplots import qqplot
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch
+from statsmodels.stats.diagnostic import acorr_ljungbox, het_arch, het_breuschpagan, het_white
 from statsmodels.stats.stattools import durbin_watson
 from statsmodels.tsa.api import VAR
 from statsmodels.tsa.stattools import adfuller, grangercausalitytests
@@ -39,6 +42,7 @@ TEST_MONTHS = 36
 ROLLING_TEST_START = "2024-01-01"
 ROLLING_HORIZON = 3
 MAX_VAR_LAGS = 12
+FORECAST_HORIZONS = [1, 3, 6, 12]
 VAR_COLUMNS = [
     "FEDFUNDS",
     "INF",
@@ -50,10 +54,47 @@ VAR_COLUMNS = [
 
 VARX_ENDOG = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH"]
 VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE", "D_2008", "D_COVID"]
+BASELINE_ORDERING = VAR_COLUMNS.copy()
+ALTERNATIVE_ORDERINGS = {
+    "baseline_policy_first": BASELINE_ORDERING,
+    "inflation_before_policy": [
+        "INF",
+        "FEDFUNDS",
+        "UNRATE",
+        "INDPRO_GROWTH",
+        "M2_GROWTH",
+        "SENTIMENT_CHANGE",
+    ],
+    "real_activity_before_policy": [
+        "UNRATE",
+        "INDPRO_GROWTH",
+        "INF",
+        "FEDFUNDS",
+        "M2_GROWTH",
+        "SENTIMENT_CHANGE",
+    ],
+    "sentiment_first": [
+        "SENTIMENT_CHANGE",
+        "FEDFUNDS",
+        "INF",
+        "UNRATE",
+        "INDPRO_GROWTH",
+        "M2_GROWTH",
+    ],
+}
 
 
 def rmse(actual: pd.Series | np.ndarray, predicted: pd.Series | np.ndarray) -> float:
     return mean_squared_error(actual, predicted) ** 0.5
+
+
+def add_acceptability_note(table: pd.DataFrame, note: str, position: int = 1) -> pd.DataFrame:
+    """Insert a reader-facing rule describing the preferred diagnostic outcome."""
+    if table.empty or "Acceptable if" in table.columns:
+        return table
+    result = table.copy()
+    result.insert(min(position, len(result.columns)), "Acceptable if", note)
+    return result
 
 
 def ensure_directories() -> None:
@@ -135,6 +176,8 @@ def adf_table(data: pd.DataFrame, output_name: str) -> pd.DataFrame:
         result = adfuller(data[column].dropna(), autolag="AIC")
         rows.append(
             {
+                "test": "Augmented Dickey-Fuller",
+                "Acceptable if": "p-value < 0.05 supports stationarity",
                 "variable": column,
                 "adf_statistic": result[0],
                 "p_value": result[1],
@@ -170,6 +213,8 @@ def run_pairwise_cointegration(raw: pd.DataFrame, raw_adf: pd.DataFrame) -> pd.D
         adf_result = adfuller(residuals, autolag="AIC")
         rows.append(
             {
+                "test": "Engle-Granger residual ADF",
+                "Acceptable if": "residual ADF p-value < 0.05 supports pairwise cointegration",
                 "left_variable": left,
                 "right_variable": right,
                 "residual_adf_p_value": adf_result[1],
@@ -300,6 +345,9 @@ def select_and_fit_var(model_df: pd.DataFrame, dummies: pd.DataFrame) -> tuple[o
         }
     )
     lag_table.index.name = "lag"
+    lag_table["Acceptable if"] = (
+        "Lower AIC/BIC/HQIC/FPE is preferred; selected lag must preserve degrees of freedom"
+    )
     lag_table.to_csv(TABLE_DIR / "academic_var_lag_selection.csv")
 
     selected_lag = int(lag_selection.aic)
@@ -340,6 +388,9 @@ def select_varx_lag_order(model_df: pd.DataFrame, dummies: pd.DataFrame) -> pd.D
         }
     )
     lag_table.index.name = "lag"
+    lag_table["Acceptable if"] = (
+        "Lower AIC/BIC/HQIC/FPE is preferred; selected lag must preserve degrees of freedom"
+    )
     lag_table.to_csv(TABLE_DIR / "academic_varx_lag_selection.csv")
     return lag_table
 
@@ -428,6 +479,8 @@ def save_parameter_significance(results: object, prefix: str) -> tuple[pd.DataFr
             std_error = results.stderr.loc[parameter, equation]
             rows.append(
                 {
+                    "test": "Classical t-test",
+                    "Acceptable if": "p-value < 0.05 indicates statistical significance; individual VAR coefficients require cautious interpretation",
                     "equation": equation,
                     "parameter": parameter,
                     "coefficient": coefficient,
@@ -455,8 +508,314 @@ def save_parameter_significance(results: object, prefix: str) -> tuple[pd.DataFr
     summary["share_significant_at_5pct"] = (
         summary["significant_at_5pct"] / summary["total_parameters"]
     )
+    summary = add_acceptability_note(
+        summary,
+        "Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",
+    )
     summary.to_csv(TABLE_DIR / f"{prefix}_parameter_significance_summary.csv", index=False)
     return table, summary
+
+
+def build_var_regression_design(
+    data: pd.DataFrame,
+    endog_columns: list[str],
+    p_lags: int,
+    exog: pd.DataFrame | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    y = data[endog_columns].iloc[p_lags:].copy()
+    x = pd.DataFrame(index=y.index)
+    x["const"] = 1.0
+    for lag in range(1, p_lags + 1):
+        for column in endog_columns:
+            x[f"L{lag}.{column}"] = data[column].shift(lag).loc[y.index]
+    if exog is not None and not exog.empty:
+        for column in exog.columns:
+            x[column] = exog[column].loc[y.index]
+    return y, x.astype(float)
+
+
+def residual_normality_diagnostics(results: object, prefix: str) -> pd.DataFrame:
+    residuals = results.resid
+    rows = []
+    for column in residuals.columns:
+        series = residuals[column].dropna()
+        jb = stats.jarque_bera(series)
+        rows.append(
+            {
+                "test": "Jarque-Bera residual normality",
+                "Acceptable if": "Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals",
+                "equation": column,
+                "jarque_bera_stat": jb.statistic,
+                "jarque_bera_p_value": jb.pvalue,
+                "skewness": stats.skew(series, bias=False),
+                "kurtosis_pearson": stats.kurtosis(series, fisher=False, bias=False),
+                "reject_normality_at_5pct": jb.pvalue < 0.05,
+            }
+        )
+
+    table = pd.DataFrame(rows)
+    try:
+        normality = results.test_normality()
+        system_row = {
+            "test": "Multivariate residual normality",
+            "Acceptable if": "system normality p-value > 0.05 is preferred; rejection is common during crisis periods",
+            "equation": "SYSTEM",
+            "jarque_bera_stat": np.nan,
+            "jarque_bera_p_value": np.nan,
+            "skewness": np.nan,
+            "kurtosis_pearson": np.nan,
+            "reject_normality_at_5pct": getattr(normality, "pvalue", np.nan) < 0.05,
+            "multivariate_normality_stat": getattr(normality, "test_statistic", np.nan),
+            "multivariate_normality_p_value": getattr(normality, "pvalue", np.nan),
+            "multivariate_normality_method": "statsmodels VAR normality test",
+        }
+        table = pd.concat([table, pd.DataFrame([system_row])], ignore_index=True)
+    except Exception:
+        table["multivariate_normality_stat"] = np.nan
+        table["multivariate_normality_p_value"] = np.nan
+        table["multivariate_normality_method"] = ""
+
+    table.to_csv(TABLE_DIR / f"{prefix}_residual_normality.csv", index=False)
+
+    n_vars = len(residuals.columns)
+    fig, axes = plt.subplots(n_vars, 2, figsize=(12, 3.1 * n_vars))
+    axes = np.atleast_2d(axes)
+    for row_idx, column in enumerate(residuals.columns):
+        series = residuals[column].dropna()
+        axes[row_idx, 0].hist(series, bins=28, density=True, alpha=0.72, color="#4C78A8")
+        grid = np.linspace(series.min(), series.max(), 200)
+        axes[row_idx, 0].plot(
+            grid,
+            stats.norm.pdf(grid, loc=series.mean(), scale=series.std(ddof=1)),
+            color="black",
+            linewidth=1.2,
+            label="Normal density",
+        )
+        axes[row_idx, 0].set_title(f"Residual Histogram: {column}")
+        axes[row_idx, 0].grid(alpha=0.2)
+        qqplot(series, line="s", ax=axes[row_idx, 1], markerfacecolor="#4C78A8", markeredgecolor="#4C78A8")
+        axes[row_idx, 1].set_title(f"Residual Q-Q Plot: {column}")
+        axes[row_idx, 1].grid(alpha=0.2)
+    plt.tight_layout()
+    plt.savefig(FIGURE_DIR / f"{prefix}_residual_qq_hist.png", dpi=180)
+    plt.close()
+    return table
+
+
+def heteroskedasticity_tests(
+    residuals: pd.DataFrame,
+    design: pd.DataFrame,
+    prefix: str,
+) -> pd.DataFrame:
+    rows = []
+    x = design.loc[residuals.index].astype(float)
+    for column in residuals.columns:
+        series = residuals[column].dropna()
+        aligned_x = x.loc[series.index]
+        row = {
+            "test": "ARCH-LM, Breusch-Pagan, and White heteroskedasticity diagnostics",
+            "Acceptable if": "p-values > 0.05 are preferred when the desired null is no conditional heteroskedasticity or homoskedastic residuals",
+            "equation": column,
+        }
+        try:
+            arch_lm, arch_p, arch_f, arch_f_p = het_arch(series, nlags=min(12, max(1, len(series) // 5)))
+            row.update(
+                {
+                    "arch_lm_stat": arch_lm,
+                    "arch_lm_p_value": arch_p,
+                    "arch_f_stat": arch_f,
+                    "arch_f_p_value": arch_f_p,
+                    "arch_effects_at_5pct": arch_p < 0.05,
+                }
+            )
+        except Exception:
+            row.update(
+                {
+                    "arch_lm_stat": np.nan,
+                    "arch_lm_p_value": np.nan,
+                    "arch_f_stat": np.nan,
+                    "arch_f_p_value": np.nan,
+                    "arch_effects_at_5pct": np.nan,
+                }
+            )
+        try:
+            bp_lm, bp_p, bp_f, bp_f_p = het_breuschpagan(series, aligned_x)
+            row.update(
+                {
+                    "breusch_pagan_lm_stat": bp_lm,
+                    "breusch_pagan_p_value": bp_p,
+                    "breusch_pagan_f_stat": bp_f,
+                    "breusch_pagan_f_p_value": bp_f_p,
+                    "breusch_pagan_at_5pct": bp_p < 0.05,
+                }
+            )
+        except Exception:
+            row.update(
+                {
+                    "breusch_pagan_lm_stat": np.nan,
+                    "breusch_pagan_p_value": np.nan,
+                    "breusch_pagan_f_stat": np.nan,
+                    "breusch_pagan_f_p_value": np.nan,
+                    "breusch_pagan_at_5pct": np.nan,
+                }
+            )
+        try:
+            white_lm, white_p, white_f, white_f_p = het_white(series, aligned_x)
+            row.update(
+                {
+                    "white_lm_stat": white_lm,
+                    "white_p_value": white_p,
+                    "white_f_stat": white_f,
+                    "white_f_p_value": white_f_p,
+                    "white_at_5pct": white_p < 0.05,
+                }
+            )
+        except Exception:
+            row.update(
+                {
+                    "white_lm_stat": np.nan,
+                    "white_p_value": np.nan,
+                    "white_f_stat": np.nan,
+                    "white_f_p_value": np.nan,
+                    "white_at_5pct": np.nan,
+                }
+            )
+        rows.append(row)
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / f"{prefix}_heteroskedasticity_tests.csv", index=False)
+    return table
+
+
+def robust_parameter_significance(
+    y: pd.DataFrame,
+    x: pd.DataFrame,
+    prefix: str,
+    hac_lags: int,
+) -> pd.DataFrame:
+    rows = []
+    for equation in y.columns:
+        model = sm.OLS(y[equation], x).fit()
+        hc3 = model.get_robustcov_results(cov_type="HC3")
+        hac = model.get_robustcov_results(cov_type="HAC", maxlags=max(1, hac_lags))
+        for pos, parameter in enumerate(x.columns):
+            classical_p = model.pvalues.iloc[pos]
+            hc3_p = hc3.pvalues[pos]
+            hac_p = hac.pvalues[pos]
+            rows.append(
+                {
+                    "test": "Classical, HC3, and HAC/Newey-West coefficient inference",
+                    "Acceptable if": "significance conclusions are stable across classical, HC3, and HAC p-values; p-value < 0.05 indicates significance",
+                    "equation": equation,
+                    "parameter": parameter,
+                    "coefficient": model.params.iloc[pos],
+                    "classical_std_error": model.bse.iloc[pos],
+                    "classical_p_value": classical_p,
+                    "hc3_std_error": hc3.bse[pos],
+                    "hc3_p_value": hc3_p,
+                    "hac_newey_west_std_error": hac.bse[pos],
+                    "hac_newey_west_p_value": hac_p,
+                    "classical_significant_at_5pct": classical_p < 0.05,
+                    "hc3_significant_at_5pct": hc3_p < 0.05,
+                    "hac_significant_at_5pct": hac_p < 0.05,
+                    "significance_changed_hc3": (classical_p < 0.05) != (hc3_p < 0.05),
+                    "significance_changed_hac": (classical_p < 0.05) != (hac_p < 0.05),
+                }
+            )
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / f"{prefix}_parameter_significance_robust.csv", index=False)
+    return table
+
+
+def model_complexity_table(
+    model_df: pd.DataFrame,
+    var_results: object,
+    varx_results: object,
+    dummies: pd.DataFrame,
+    econ_metrics: pd.DataFrame | None = None,
+    var_diag: pd.DataFrame | None = None,
+    varx_diag: pd.DataFrame | None = None,
+    var_norm: pd.DataFrame | None = None,
+    varx_norm: pd.DataFrame | None = None,
+    var_het: pd.DataFrame | None = None,
+    varx_het: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    rows = []
+    specs = [
+        ("VAR", VAR_COLUMNS, ["D_2008", "D_COVID"], var_results, var_diag, var_norm, var_het),
+        ("VARX", VARX_ENDOG, VARX_EXOG, varx_results, varx_diag, varx_norm, varx_het),
+    ]
+    for model_name, endog, exog, results, diag, norm, het in specs:
+        n_obs = len(model_df)
+        effective_obs = int(results.nobs)
+        k_endog = len(endog)
+        k_exog = len(exog)
+        lag_order = int(results.k_ar)
+        params_per_equation = int(results.params.shape[0])
+        total_params = int(params_per_equation * k_endog)
+        parameter_to_observation_ratio = total_params / effective_obs
+        warnings_list = []
+        if parameter_to_observation_ratio > 0.25:
+            warnings_list.append("high total parameter-to-observation ratio")
+        if params_per_equation > effective_obs / 4:
+            warnings_list.append("weak equation degrees of freedom")
+        if lag_order >= 8:
+            warnings_list.append("high lag order")
+        whiteness_p = np.nan
+        if diag is not None and "multivariate_whiteness_p_value" in diag:
+            whiteness_p = diag["multivariate_whiteness_p_value"].dropna().iloc[0]
+            if whiteness_p < 0.05:
+                warnings_list.append("multivariate whiteness rejected")
+        normality_p = np.nan
+        if norm is not None and "equation" in norm.columns:
+            system = norm.loc[norm["equation"] == "SYSTEM"]
+            if not system.empty:
+                normality_p = system["multivariate_normality_p_value"].iloc[0]
+                if pd.notna(normality_p) and normality_p < 0.05:
+                    warnings_list.append("multivariate normality rejected")
+        arch_any = False
+        if het is not None and "arch_effects_at_5pct" in het:
+            arch_any = bool(het["arch_effects_at_5pct"].fillna(False).any())
+            if arch_any:
+                warnings_list.append("ARCH effects detected")
+        rmse_value = np.nan
+        mae_value = np.nan
+        if econ_metrics is not None:
+            match = econ_metrics.loc[econ_metrics["model"] == model_name]
+            if not match.empty:
+                rmse_value = match["rmse"].iloc[0]
+                mae_value = match["mae"].iloc[0]
+        rows.append(
+            {
+                "model": model_name,
+                "Acceptable if": "stable system, reasonable parameter-to-observation ratio, residual diagnostic p-values > 0.05 preferred, lower RMSE/MAE is better",
+                "endogenous_variables": ", ".join(endog),
+                "exogenous_variables": ", ".join(exog),
+                "observations": n_obs,
+                "effective_observations_after_lags": effective_obs,
+                "n_endogenous": k_endog,
+                "lag_order": lag_order,
+                "n_exogenous": k_exog,
+                "parameters_per_equation": params_per_equation,
+                "total_parameters": total_params,
+                "parameter_to_observation_ratio": parameter_to_observation_ratio,
+                "stable": bool(results.is_stable()),
+                "multivariate_whiteness_p_value": whiteness_p,
+                "multivariate_normality_p_value": normality_p,
+                "arch_effects_any_equation": arch_any,
+                "inflation_forecast_rmse": rmse_value,
+                "inflation_forecast_mae": mae_value,
+                "interpretability_notes": (
+                    "System dynamics, Granger causality, IRF, FEVD, policy transmission"
+                    if model_name == "VAR"
+                    else "Conditional/scenario forecasts depend on supplied exogenous paths"
+                ),
+                "warnings": "; ".join(warnings_list) if warnings_list else "No major complexity warning",
+            }
+        )
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / "academic_var_varx_diagnostic_comparison.csv", index=False)
+    table.to_csv(TABLE_DIR / "academic_model_complexity_overparameterization.csv", index=False)
+    return table
 
 
 def residual_autocorrelation_visuals(
@@ -479,6 +838,8 @@ def residual_autocorrelation_visuals(
         outside = [value for value in acf_values if abs(value) > confidence_bound]
         summary_rows.append(
             {
+                "test": "Residual ACF visual bound check",
+                "Acceptable if": "most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds",
                 "equation": column,
                 "max_abs_acf_lag_1_to_24": np.nanmax(np.abs(acf_values)),
                 "confidence_bound_approx": confidence_bound,
@@ -517,6 +878,8 @@ def residual_autocorrelation_visuals(
                 outside = [value for value in values if abs(value) > confidence_bound]
                 ccf_rows.append(
                     {
+                        "test": "Residual cross-correlation visual bound check",
+                        "Acceptable if": "most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds",
                         "source_residual": source,
                         "target_residual": target,
                         "max_abs_ccf_lag_1_to_24": np.nanmax(np.abs(values)),
@@ -550,6 +913,8 @@ def residual_arch_tests(residuals: pd.DataFrame, prefix: str) -> pd.DataFrame:
         lm_stat, lm_p_value, f_stat, f_p_value = het_arch(residuals[column].dropna(), nlags=12)
         rows.append(
             {
+                "test": "ARCH-LM residual volatility test",
+                "Acceptable if": "ARCH-LM p-value > 0.05 is preferred if no ARCH effects are desired",
                 "equation": column,
                 "arch_lm_stat_lag12": lm_stat,
                 "arch_lm_p_value_lag12": lm_p_value,
@@ -582,6 +947,8 @@ def lag_residual_autocorrelation_robustness(
             whiteness_p_value = np.nan
         rows.append(
             {
+                "test": "Lag-order residual autocorrelation robustness",
+                "Acceptable if": "stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",
                 "lag_order": p_lag,
                 "aic": fitted.aic,
                 "bic": fitted.bic,
@@ -605,6 +972,8 @@ def residual_diagnostics(results: object, prefix: str) -> pd.DataFrame:
         lb = acorr_ljungbox(residuals[column], lags=[12], return_df=True)
         rows.append(
             {
+                "test": "Durbin-Watson and Ljung-Box residual autocorrelation",
+                "Acceptable if": "Durbin-Watson near 2 and Ljung-Box p-value > 0.05 indicate weaker serial dependence",
                 "variable": column,
                 "durbin_watson": dw_values[idx],
                 "ljung_box_p_value_lag12": lb["lb_pvalue"].iloc[0],
@@ -683,6 +1052,8 @@ def granger_map(model_df: pd.DataFrame, maxlag: int) -> pd.DataFrame:
                 p_value = result[maxlag][0]["ssr_ftest"][1]
                 rows.append(
                     {
+                        "test": "Pairwise Granger causality F-test",
+                        "Acceptable if": "p-value < 0.05 indicates predictive causality, not structural causality",
                         "source": source,
                         "target": target,
                         "lag": maxlag,
@@ -727,6 +1098,7 @@ def save_irf_fevd(results: object, horizon: int = 24) -> pd.DataFrame:
             for h, value in enumerate(path):
                 irf_path_rows.append(
                     {
+                        "Acceptable if": "response paths are interpreted with Cholesky identification caveats and confidence bands",
                         "response": response,
                         "shock": shock,
                         "horizon": h,
@@ -736,6 +1108,7 @@ def save_irf_fevd(results: object, horizon: int = 24) -> pd.DataFrame:
             peak_horizon = int(np.nanargmax(np.abs(path)))
             irf_rows.append(
                 {
+                    "Acceptable if": "economically meaningful responses should be interpreted with confidence bands and identification caveats",
                     "response": response,
                     "shock": shock,
                     "impact_h0": path[0],
@@ -771,6 +1144,7 @@ def save_irf_fevd(results: object, horizon: int = 24) -> pd.DataFrame:
                         "response": response,
                         "horizon": h,
                         "shock": shock,
+                        "Acceptable if": "variance shares closer to 1 indicate stronger contribution of the shock to forecast-error variance",
                         "variance_share": fevd.decomp[response_idx, h - 1, shock_idx],
                     }
                 )
@@ -781,6 +1155,7 @@ def save_irf_fevd(results: object, horizon: int = 24) -> pd.DataFrame:
                         "response": response,
                         "horizon": h,
                         "shock": shock,
+                        "Acceptable if": "variance shares closer to 1 indicate stronger contribution of the shock to forecast-error variance",
                         "variance_share": fevd.decomp[response_idx, h - 1, shock_idx],
                     }
                 )
@@ -814,6 +1189,71 @@ def save_irf_fevd(results: object, horizon: int = 24) -> pd.DataFrame:
     plt.savefig(FIGURE_DIR / "academic_11_fevd.png", dpi=180)
     plt.close()
 
+    return table
+
+
+def save_varx_scenario_response(
+    results: object,
+    model_df: pd.DataFrame,
+    horizon: int = 24,
+    shock_variable: str = "FEDFUNDS",
+    shock_size: float = 1.0,
+) -> pd.DataFrame:
+    """Save a VARX conditional shock response using fixed exogenous paths."""
+    if shock_variable not in VARX_EXOG:
+        raise ValueError(f"{shock_variable} is not a VARX exogenous variable.")
+
+    base_exog = pd.DataFrame(np.zeros((horizon, len(VARX_EXOG))), columns=VARX_EXOG)
+    shocked_exog = base_exog.copy()
+    shocked_exog.loc[0, shock_variable] = shock_size
+
+    endog_history = model_df[VARX_ENDOG]
+    base_forecast = results.forecast(
+        endog_history.values[-results.k_ar :],
+        steps=horizon,
+        exog_future=base_exog.values,
+    )
+    shocked_forecast = results.forecast(
+        endog_history.values[-results.k_ar :],
+        steps=horizon,
+        exog_future=shocked_exog.values,
+    )
+    response = shocked_forecast - base_forecast
+
+    rows = []
+    for response_idx, response_variable in enumerate(VARX_ENDOG):
+        for h in range(horizon):
+            rows.append(
+                {
+                    "response_type": "VARX conditional/scenario response",
+                    "Acceptable if": "interpret as a conditional scenario path, not a structural IRF; exogenous future paths are assumed",
+                    "shock": shock_variable,
+                    "shock_size": shock_size,
+                    "response": response_variable,
+                    "horizon": h + 1,
+                    "value": response[h, response_idx],
+                    "scenario_assumption": (
+                        f"temporary +{shock_size:g} shock to {shock_variable} at horizon 1; "
+                        "all other future exogenous values held at the baseline path"
+                    ),
+                }
+            )
+
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / "academic_varx_scenario_response.csv", index=False)
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for response_variable, group in table.groupby("response"):
+        ax.plot(group["horizon"], group["value"], marker="o", linewidth=1.4, label=response_variable)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+    ax.set_title(f"VARX Conditional Scenario Response to Temporary {shock_variable} Shock")
+    ax.set_xlabel("Horizon in months")
+    ax.set_ylabel("Conditional response")
+    ax.grid(alpha=0.25)
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(FIGURE_DIR / "academic_varx_fedfunds_scenario_response.png", dpi=180)
+    plt.close()
     return table
 
 
@@ -855,10 +1295,16 @@ def econometric_forecasts(
         rows.append(
             {
                 "model": "Random Walk (direct 36-month)" if model == "Random Walk" else model,
+                "Acceptable if": "Lower RMSE/MAE is better; higher directional accuracy is better",
                 "target": "INF",
                 "forecast_design": "final_36_months",
                 "rmse": rmse(forecasts["actual_INF"], forecasts[model]),
                 "mae": mean_absolute_error(forecasts["actual_INF"], forecasts[model]),
+                "directional_accuracy": directional_accuracy(
+                    forecasts["actual_INF"], forecasts[model], random_walk
+                )
+                if model != "Random Walk"
+                else np.nan,
             }
         )
     metrics = pd.DataFrame(rows)
@@ -964,6 +1410,7 @@ def machine_learning_benchmarks(model_df: pd.DataFrame, p_lags: int) -> pd.DataF
     }
 
     predictions = pd.DataFrame({"actual_INF": y_test})
+    random_walk = model_df["INF"].shift(1).loc[y_test.index]
     rows = []
     for name, model in models.items():
         model.fit(x_train, y_train)
@@ -972,22 +1419,25 @@ def machine_learning_benchmarks(model_df: pd.DataFrame, p_lags: int) -> pd.DataF
         rows.append(
             {
                 "model": name,
+                "Acceptable if": "Lower RMSE/MAE is better; higher directional accuracy is better",
                 "target": "INF",
                 "forecast_design": "one_step_lagged_features_final_36_months",
                 "rmse": rmse(y_test, pred),
                 "mae": mean_absolute_error(y_test, pred),
+                "directional_accuracy": directional_accuracy(y_test, pred, random_walk),
             }
         )
 
-    random_walk = model_df["INF"].shift(1).loc[y_test.index]
     predictions["Random Walk"] = random_walk
     rows.append(
         {
             "model": "Random Walk (one-step)",
+            "Acceptable if": "Lower RMSE/MAE is better; higher directional accuracy is better",
             "target": "INF",
             "forecast_design": "one_step_lagged_features_final_36_months",
             "rmse": rmse(y_test, random_walk),
             "mae": mean_absolute_error(y_test, random_walk),
+            "directional_accuracy": np.nan,
         }
     )
 
@@ -1007,6 +1457,534 @@ def machine_learning_benchmarks(model_df: pd.DataFrame, p_lags: int) -> pd.DataF
     plt.close()
 
     return metrics
+
+
+def make_direct_horizon_features(
+    model_df: pd.DataFrame,
+    lags: int,
+    horizon: int,
+    target: str = "INF",
+) -> tuple[pd.DataFrame, pd.Series]:
+    rows = []
+    index = []
+    for i in range(lags, len(model_df) - horizon):
+        features = {}
+        for lag in range(1, lags + 1):
+            for column in model_df.columns:
+                features[f"{column}_lag{lag}"] = model_df[column].iloc[i - lag + 1]
+        rows.append(features)
+        index.append(model_df.index[i])
+    x = pd.DataFrame(rows, index=index)
+    y = model_df[target].shift(-horizon).loc[x.index]
+    return x, y
+
+
+def directional_accuracy(actual: pd.Series, predicted: pd.Series, baseline: pd.Series) -> float:
+    actual_direction = np.sign(actual.values - baseline.values)
+    predicted_direction = np.sign(predicted.values - baseline.values)
+    valid = actual_direction != 0
+    if valid.sum() == 0:
+        return np.nan
+    return float((actual_direction[valid] == predicted_direction[valid]).mean())
+
+
+def diebold_mariano(errors_model: np.ndarray, errors_benchmark: np.ndarray, horizon: int) -> tuple[float, float]:
+    diff = errors_model**2 - errors_benchmark**2
+    diff = diff[np.isfinite(diff)]
+    n = len(diff)
+    if n < 8:
+        return np.nan, np.nan
+    centered = diff - diff.mean()
+    gamma0 = np.sum(centered * centered) / n
+    var = gamma0
+    max_lag = max(0, horizon - 1)
+    for lag in range(1, max_lag + 1):
+        gamma = np.sum(centered[lag:] * centered[:-lag]) / n
+        weight = 1 - lag / (max_lag + 1)
+        var += 2 * weight * gamma
+    if var <= 0:
+        return np.nan, np.nan
+    statistic = diff.mean() / np.sqrt(var / n)
+    p_value = 2 * (1 - stats.norm.cdf(abs(statistic)))
+    return float(statistic), float(p_value)
+
+
+def multihorizon_forecast_comparison(
+    model_df: pd.DataFrame,
+    dummies: pd.DataFrame,
+    p_lags: int,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    prediction_rows = []
+    max_horizon = max(FORECAST_HORIZONS)
+    start_pos = max(p_lags + 80, len(model_df) - 12 - max_horizon)
+    ml_models = {
+        "Ridge Regression": make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
+    }
+
+    for horizon in FORECAST_HORIZONS:
+        x_direct, y_direct = make_direct_horizon_features(model_df, p_lags, horizon, "INF")
+        for origin_pos in range(start_pos, len(model_df) - horizon):
+            origin_date = model_df.index[origin_pos]
+            actual_date = model_df.index[origin_pos + horizon]
+            actual = model_df["INF"].iloc[origin_pos + horizon]
+            baseline = model_df["INF"].iloc[origin_pos]
+            history = model_df.iloc[: origin_pos + 1]
+            future_dummies = dummies.iloc[origin_pos + 1 : origin_pos + 1 + horizon]
+
+            try:
+                var = VAR(history, exog=dummies.loc[history.index]).fit(p_lags, trend="c")
+                var_path = var.forecast(
+                    history.values[-p_lags:],
+                    steps=horizon,
+                    exog_future=future_dummies.values,
+                )
+                prediction_rows.append(
+                    {
+                        "origin": origin_date,
+                        "target_date": actual_date,
+                        "horizon": horizon,
+                        "model": "VAR",
+                        "actual": actual,
+                        "forecast": var_path[-1, list(history.columns).index("INF")],
+                        "naive_forecast": baseline,
+                    }
+                )
+            except Exception:
+                pass
+
+            try:
+                train_varx_exog = pd.concat(
+                    [history[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies.loc[history.index]], axis=1
+                )
+                future = model_df.iloc[origin_pos + 1 : origin_pos + 1 + horizon]
+                future_varx_exog = pd.concat(
+                    [future[["FEDFUNDS", "SENTIMENT_CHANGE"]], future_dummies], axis=1
+                )
+                varx = VAR(history[VARX_ENDOG], exog=train_varx_exog).fit(p_lags, trend="c")
+                varx_path = varx.forecast(
+                    history[VARX_ENDOG].values[-p_lags:],
+                    steps=horizon,
+                    exog_future=future_varx_exog.values,
+                )
+                prediction_rows.append(
+                    {
+                        "origin": origin_date,
+                        "target_date": actual_date,
+                        "horizon": horizon,
+                        "model": "VARX",
+                        "actual": actual,
+                        "forecast": varx_path[-1, VARX_ENDOG.index("INF")],
+                        "naive_forecast": baseline,
+                    }
+                )
+            except Exception:
+                pass
+
+            if origin_date in x_direct.index:
+                train_x = x_direct.loc[x_direct.index <= model_df.index[origin_pos - horizon]]
+                train_y = y_direct.loc[train_x.index]
+                predict_x = x_direct.loc[[origin_date]]
+                if len(train_x) >= 80 and train_y.notna().all():
+                    for model_name, model in ml_models.items():
+                        try:
+                            model.fit(train_x, train_y)
+                            forecast = float(model.predict(predict_x)[0])
+                            prediction_rows.append(
+                                {
+                                    "origin": origin_date,
+                                    "target_date": actual_date,
+                                    "horizon": horizon,
+                                    "model": model_name,
+                                    "actual": actual,
+                                    "forecast": forecast,
+                                    "naive_forecast": baseline,
+                                }
+                            )
+                        except Exception:
+                            pass
+
+            prediction_rows.append(
+                {
+                    "origin": origin_date,
+                    "target_date": actual_date,
+                    "horizon": horizon,
+                    "model": "Random Walk",
+                    "actual": actual,
+                    "forecast": baseline,
+                    "naive_forecast": baseline,
+                }
+            )
+
+    predictions = pd.DataFrame(prediction_rows)
+    prediction_path = TABLE_DIR / "academic_multihorizon_forecast_predictions.csv"
+    predictions.to_csv(prediction_path, index=False)
+
+    rows = []
+    for (horizon, model_name), group in predictions.groupby(["horizon", "model"]):
+        actual = group["actual"]
+        forecast = group["forecast"]
+        naive = group["naive_forecast"]
+        naive_group = predictions.loc[
+            (predictions["horizon"] == horizon) & (predictions["model"] == "Random Walk")
+        ]
+        naive_rmse = rmse(naive_group["actual"], naive_group["forecast"])
+        rows.append(
+            {
+                "horizon": horizon,
+                "model": model_name,
+                "Acceptable if": "Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better",
+                "n_forecasts": len(group),
+                "rmse": rmse(actual, forecast),
+                "mae": mean_absolute_error(actual, forecast),
+                "directional_accuracy": directional_accuracy(actual, forecast, naive),
+                "relative_rmse_vs_random_walk": rmse(actual, forecast) / naive_rmse if naive_rmse else np.nan,
+            }
+        )
+    comparison = pd.DataFrame(rows).sort_values(["horizon", "rmse"])
+    comparison.to_csv(TABLE_DIR / "academic_multihorizon_forecast_comparison.csv", index=False)
+
+    dm_rows = []
+    for horizon in FORECAST_HORIZONS:
+        benchmark = predictions.loc[
+            (predictions["horizon"] == horizon) & (predictions["model"] == "Random Walk")
+        ].set_index("target_date")
+        for model_name in sorted(set(predictions["model"]) - {"Random Walk"}):
+            model_group = predictions.loc[
+                (predictions["horizon"] == horizon) & (predictions["model"] == model_name)
+            ].set_index("target_date")
+            aligned = model_group.join(
+                benchmark[["actual", "forecast"]].rename(
+                    columns={"actual": "actual_benchmark", "forecast": "benchmark_forecast"}
+                ),
+                how="inner",
+            )
+            if aligned.empty:
+                continue
+            errors_model = aligned["actual"] - aligned["forecast"]
+            errors_benchmark = aligned["actual"] - aligned["benchmark_forecast"]
+            dm_stat, dm_p = diebold_mariano(
+                errors_model.to_numpy(), errors_benchmark.to_numpy(), horizon
+            )
+            dm_rows.append(
+                {
+                    "horizon": horizon,
+                    "model": model_name,
+                    "benchmark": "Random Walk",
+                    "Acceptable if": "p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark",
+                    "dm_statistic": dm_stat,
+                    "p_value": dm_p,
+                    "reject_equal_accuracy_at_5pct": dm_p < 0.05 if pd.notna(dm_p) else False,
+                    "mean_loss_difference_model_minus_benchmark": np.mean(
+                        errors_model.to_numpy() ** 2 - errors_benchmark.to_numpy() ** 2
+                    ),
+                }
+            )
+    dm_table = pd.DataFrame(dm_rows)
+    dm_table.to_csv(TABLE_DIR / "academic_diebold_mariano_tests.csv", index=False)
+
+    fig, ax = plt.subplots(figsize=(11, 5))
+    for model_name, group in comparison.groupby("model"):
+        ax.plot(group["horizon"], group["rmse"], marker="o", label=model_name)
+    ax.set_title("Multi-Horizon Inflation Forecast RMSE")
+    ax.set_xlabel("Forecast horizon in months")
+    ax.set_ylabel("RMSE")
+    ax.grid(alpha=0.25)
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(FIGURE_DIR / "academic_multihorizon_rmse.png", dpi=180)
+    plt.close()
+    return comparison, dm_table
+
+
+def expanding_window_robustness(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lags: int) -> pd.DataFrame:
+    rows = []
+    end_dates = pd.date_range("2015-12-01", model_df.index[-13], freq="12MS")
+    tracked = [
+        ("FEDFUNDS", "INF"),
+        ("FEDFUNDS", "UNRATE"),
+        ("FEDFUNDS", "INDPRO_GROWTH"),
+    ]
+    for end_date in end_dates:
+        if end_date not in model_df.index:
+            continue
+        end_pos = model_df.index.get_loc(end_date)
+        sample = model_df.iloc[: end_pos + 1]
+        if len(sample) < 120:
+            continue
+        try:
+            selected_lag = int(VAR(sample, exog=dummies.loc[sample.index]).select_order(maxlags=8).aic)
+            selected_lag = max(1, selected_lag)
+        except Exception:
+            selected_lag = p_lags
+        try:
+            fitted = VAR(sample, exog=dummies.loc[sample.index]).fit(selected_lag, trend="c")
+            whiteness_p = fitted.test_whiteness(nlags=12).pvalue
+        except Exception:
+            continue
+        try:
+            pvalue_table = fitted.pvalues
+        except Exception:
+            pvalue_table = pd.DataFrame(
+                np.nan, index=fitted.params.index, columns=fitted.params.columns
+            )
+        next_window = model_df.iloc[end_pos + 1 : min(end_pos + 13, len(model_df))]
+        forecast_rmse = np.nan
+        if len(next_window) > 0:
+            try:
+                future_dummies = dummies.loc[next_window.index]
+                forecast_values = fitted.forecast(
+                    sample.values[-selected_lag:],
+                    steps=len(next_window),
+                    exog_future=future_dummies.values,
+                )
+                forecast = pd.Series(
+                    forecast_values[:, sample.columns.get_loc("INF")],
+                    index=next_window.index,
+                )
+                forecast_rmse = rmse(next_window["INF"], forecast)
+            except Exception:
+                forecast_rmse = np.nan
+        try:
+            irf = fitted.irf(12).orth_irfs
+            fed_idx = fitted.names.index("FEDFUNDS")
+            inf_idx = fitted.names.index("INF")
+            irf_h6 = irf[6, inf_idx, fed_idx]
+        except Exception:
+            irf_h6 = np.nan
+
+        for source, target in tracked:
+            param = f"L1.{source}"
+            coef = fitted.params.loc[param, target] if param in fitted.params.index else np.nan
+            p_value = pvalue_table.loc[param, target] if param in pvalue_table.index else np.nan
+            rows.append(
+                {
+                    "window_end": end_date,
+                    "Acceptable if": "stable signs/significance, stable system, whiteness p-value > 0.05, and lower forecast RMSE indicate stronger robustness",
+                    "selected_lag_aic": selected_lag,
+                    "relationship": f"{source} -> {target}",
+                    "coefficient_L1": coef,
+                    "p_value_L1": p_value,
+                    "significant_at_5pct": p_value < 0.05 if pd.notna(p_value) else False,
+                    "coefficient_sign": np.sign(coef) if pd.notna(coef) else np.nan,
+                    "stable_system": fitted.is_stable(),
+                    "multivariate_whiteness_p_value": whiteness_p,
+                    "next_12m_inf_rmse": forecast_rmse,
+                    "fedfunds_shock_to_inf_irf_h6": irf_h6,
+                }
+            )
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / "academic_expanding_window_robustness.csv", index=False)
+    return table
+
+
+def regime_split_comparison(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lags: int) -> pd.DataFrame:
+    regimes = {
+        "full_sample": (model_df.index.min(), model_df.index.max()),
+        "pre_2008": (model_df.index.min(), pd.Timestamp("2008-08-01")),
+        "post_2008_pre_covid": (pd.Timestamp("2008-09-01"), pd.Timestamp("2020-02-01")),
+        "pre_covid": (model_df.index.min(), pd.Timestamp("2020-02-01")),
+        "post_covid": (pd.Timestamp("2020-03-01"), model_df.index.max()),
+    }
+    rows = []
+    for regime, (start, end) in regimes.items():
+        sample = model_df.loc[start:end]
+        if len(sample) <= p_lags + 36:
+            continue
+        sample_dummies = dummies.loc[sample.index]
+        for model_name in ["VAR", "VARX"]:
+            try:
+                if model_name == "VAR":
+                    fitted = VAR(sample, exog=sample_dummies).fit(p_lags, trend="c")
+                    coeffs = fitted.params
+                else:
+                    exog = pd.concat(
+                        [sample[["FEDFUNDS", "SENTIMENT_CHANGE"]], sample_dummies], axis=1
+                    )
+                    fitted = VAR(sample[VARX_ENDOG], exog=exog).fit(p_lags, trend="c")
+                    coeffs = fitted.params
+                try:
+                    pvalues = fitted.pvalues
+                except Exception:
+                    pvalues = pd.DataFrame(np.nan, index=coeffs.index, columns=coeffs.columns)
+                whiteness_p = fitted.test_whiteness(nlags=12).pvalue
+                for target in ["INF", "UNRATE", "INDPRO_GROWTH"]:
+                    if target not in coeffs.columns:
+                        continue
+                    param = "L1.FEDFUNDS"
+                    rows.append(
+                        {
+                            "regime": regime,
+                            "model": model_name,
+                            "Acceptable if": "relationship signs/significance and diagnostics remain similar across regimes",
+                            "start_date": sample.index.min(),
+                            "end_date": sample.index.max(),
+                            "n_obs": len(sample),
+                            "lag_order": p_lags,
+                            "relationship": f"FEDFUNDS -> {target}",
+                            "coefficient_L1": coeffs.loc[param, target] if param in coeffs.index else np.nan,
+                            "p_value_L1": pvalues.loc[param, target] if param in pvalues.index else np.nan,
+                            "stable_system": fitted.is_stable(),
+                            "multivariate_whiteness_p_value": whiteness_p,
+                            "aic": fitted.aic,
+                            "bic": fitted.bic,
+                        }
+                    )
+            except Exception:
+                continue
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / "academic_regime_split_comparison.csv", index=False)
+    return table
+
+
+def crisis_dummy_robustness(
+    model_df: pd.DataFrame,
+    dummies: pd.DataFrame,
+    p_lags: int,
+) -> pd.DataFrame:
+    train, test = split_train_test(model_df)
+    specs = {
+        "no_crisis_dummies": [],
+        "D_2008_only": ["D_2008"],
+        "D_COVID_only": ["D_COVID"],
+        "both_dummies": ["D_2008", "D_COVID"],
+    }
+    rows = []
+    for model_name in ["VAR", "VARX"]:
+        for spec_name, dummy_cols in specs.items():
+            try:
+                if model_name == "VAR":
+                    exog = dummies[dummy_cols] if dummy_cols else None
+                    fitted = VAR(model_df, exog=exog).fit(p_lags, trend="c")
+                    train_exog = dummies.loc[train.index, dummy_cols] if dummy_cols else None
+                    test_exog = dummies.loc[test.index, dummy_cols] if dummy_cols else None
+                    fitted_train = VAR(train, exog=train_exog).fit(p_lags, trend="c")
+                    forecast_values = fitted_train.forecast(
+                        train.values[-p_lags:],
+                        steps=len(test),
+                        exog_future=test_exog.values if test_exog is not None else None,
+                    )
+                    forecast = pd.Series(
+                        forecast_values[:, train.columns.get_loc("INF")], index=test.index
+                    )
+                else:
+                    base_exog = model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]]
+                    exog = pd.concat([base_exog, dummies[dummy_cols]], axis=1)
+                    fitted = VAR(model_df[VARX_ENDOG], exog=exog).fit(p_lags, trend="c")
+                    train_exog = pd.concat(
+                        [train[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies.loc[train.index, dummy_cols]],
+                        axis=1,
+                    )
+                    test_exog = pd.concat(
+                        [test[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies.loc[test.index, dummy_cols]],
+                        axis=1,
+                    )
+                    fitted_train = VAR(train[VARX_ENDOG], exog=train_exog).fit(p_lags, trend="c")
+                    forecast_values = fitted_train.forecast(
+                        train[VARX_ENDOG].values[-p_lags:],
+                        steps=len(test),
+                        exog_future=test_exog.values,
+                    )
+                    forecast = pd.Series(forecast_values[:, VARX_ENDOG.index("INF")], index=test.index)
+                residuals = fitted.resid
+                arch_count = 0
+                for column in residuals.columns:
+                    try:
+                        arch_count += het_arch(residuals[column].dropna(), nlags=12)[1] < 0.05
+                    except Exception:
+                        pass
+                rows.append(
+                    {
+                        "model": model_name,
+                        "dummy_specification": spec_name,
+                        "Acceptable if": "lower AIC/BIC/RMSE, whiteness p-value > 0.05, fewer ARCH effects, and theoretical coherence",
+                        "dummy_variables": ", ".join(dummy_cols) if dummy_cols else "none",
+                        "aic": fitted.aic,
+                        "bic": fitted.bic,
+                        "stable_system": fitted.is_stable(),
+                        "multivariate_whiteness_p_value": fitted.test_whiteness(nlags=12).pvalue,
+                        "arch_effect_equation_count": arch_count,
+                        "inflation_rmse_final_36m": rmse(test["INF"], forecast),
+                        "inflation_mae_final_36m": mean_absolute_error(test["INF"], forecast),
+                    }
+                )
+            except Exception:
+                continue
+    table = pd.DataFrame(rows)
+    table.to_csv(TABLE_DIR / "academic_crisis_dummy_robustness.csv", index=False)
+    return table
+
+
+def irf_robustness(results: object, model_df: pd.DataFrame, dummies: pd.DataFrame, p_lags: int) -> pd.DataFrame:
+    ordering_rows = []
+    summary_rows = []
+    for name, ordering in ALTERNATIVE_ORDERINGS.items():
+        for order, variable in enumerate(ordering, start=1):
+            ordering_rows.append(
+                {
+                    "ordering_name": name,
+                    "Acceptable if": "alternative orderings should be economically defensible; similar signs strengthen IRF robustness",
+                    "order": order,
+                    "variable": variable,
+                }
+            )
+        try:
+            fitted = VAR(model_df[ordering], exog=dummies).fit(p_lags, trend="c")
+            irf = fitted.irf(24).orth_irfs
+            shock_idx = ordering.index("FEDFUNDS")
+            for response in ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"]:
+                response_idx = ordering.index(response)
+                path = irf[:, response_idx, shock_idx]
+                summary_rows.append(
+                    {
+                        "ordering_name": name,
+                        "Acceptable if": "similar response signs and magnitudes across Cholesky orderings indicate stronger robustness",
+                        "shock": "FEDFUNDS",
+                        "response": response,
+                        "impact_h0": path[0],
+                        "response_h3": path[3],
+                        "response_h6": path[6],
+                        "response_h12": path[12],
+                        "response_h24": path[24],
+                        "cumulative_response_h0_to_h24": path.sum(),
+                        "positive_short_run_response_h0_to_h3": path[:4].sum() > 0,
+                    }
+                )
+        except Exception:
+            continue
+    order_table = pd.DataFrame(ordering_rows)
+    order_table.to_csv(TABLE_DIR / "academic_alternative_cholesky_orderings.csv", index=False)
+    summary = pd.DataFrame(summary_rows)
+    summary.to_csv(TABLE_DIR / "academic_irf_robustness_summary.csv", index=False)
+
+    irf = results.irf(24)
+    responses = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"]
+    fig, axes = plt.subplots(len(responses), 1, figsize=(11, 12), sharex=True)
+    paths = irf.orth_irfs
+    fed_idx = results.names.index("FEDFUNDS")
+    try:
+        lower, upper = irf.errband_mc(orth=True, repl=300, signif=0.05, seed=42)
+    except Exception:
+        lower = upper = None
+    horizons = np.arange(paths.shape[0])
+    for ax, response in zip(axes, responses):
+        response_idx = results.names.index(response)
+        ax.plot(horizons, paths[:, response_idx, fed_idx], color="#1f4e79", linewidth=1.8)
+        if lower is not None and upper is not None:
+            ax.fill_between(
+                horizons,
+                lower[:, response_idx, fed_idx],
+                upper[:, response_idx, fed_idx],
+                color="#1f4e79",
+                alpha=0.18,
+            )
+        ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
+        ax.set_title(f"Response of {response} to FEDFUNDS Shock")
+        ax.grid(alpha=0.25)
+    axes[-1].set_xlabel("Horizon in months")
+    plt.tight_layout()
+    plt.savefig(FIGURE_DIR / "academic_irf_with_confidence_intervals.png", dpi=180)
+    plt.close()
+    return summary
 
 
 def combined_model_ranking(econometric_metrics: pd.DataFrame, ml_metrics: pd.DataFrame) -> pd.DataFrame:
@@ -1037,17 +2015,47 @@ def main() -> None:
     varx_results = fit_varx(model_df, dummies, p_lags)
     save_parameter_significance(var_results, "academic_var")
     save_parameter_significance(varx_results, "academic_varx")
+    var_y, var_x = build_var_regression_design(
+        model_df, VAR_COLUMNS, p_lags, dummies[["D_2008", "D_COVID"]]
+    )
+    varx_exog = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
+    varx_y, varx_x = build_var_regression_design(model_df, VARX_ENDOG, p_lags, varx_exog)
+    robust_parameter_significance(var_y, var_x, "academic_var", hac_lags=min(12, p_lags * 2))
+    robust_parameter_significance(varx_y, varx_x, "academic_varx", hac_lags=min(12, p_lags * 2))
     lag_residual_autocorrelation_robustness(model_df, dummies)
     var_diagnostics = residual_diagnostics(var_results, "academic_var")
     varx_diagnostics = residual_diagnostics(varx_results, "academic_varx")
+    var_normality = residual_normality_diagnostics(var_results, "academic_var")
+    varx_normality = residual_normality_diagnostics(varx_results, "academic_varx")
+    var_heteroskedasticity = heteroskedasticity_tests(var_results.resid, var_x, "academic_var")
+    varx_heteroskedasticity = heteroskedasticity_tests(varx_results.resid, varx_x, "academic_varx")
     granger = granger_map(model_df, p_lags)
     save_irf_fevd(var_results)
+    save_varx_scenario_response(varx_results, model_df)
+    irf_robustness(var_results, model_df, dummies, p_lags)
 
     train, test = split_train_test(model_df)
     econ_forecasts, econ_metrics = econometric_forecasts(train, test, dummies, p_lags)
     rolling_metrics = rolling_varx_forecasts(model_df, dummies, p_lags)
     ml_metrics = machine_learning_benchmarks(model_df, p_lags)
     combined = combined_model_ranking(econ_metrics, ml_metrics)
+    model_complexity_table(
+        model_df,
+        var_results,
+        varx_results,
+        dummies,
+        econ_metrics,
+        var_diagnostics,
+        varx_diagnostics,
+        var_normality,
+        varx_normality,
+        var_heteroskedasticity,
+        varx_heteroskedasticity,
+    )
+    multihorizon_metrics, dm_tests = multihorizon_forecast_comparison(model_df, dummies, p_lags)
+    expanding_window_robustness(model_df, dummies, p_lags)
+    regime_split_comparison(model_df, dummies, p_lags)
+    crisis_dummy_robustness(model_df, dummies, p_lags)
 
     print("Academic time-series pipeline completed successfully.")
     print(f"Raw data shape: {raw.shape}")
@@ -1067,6 +2075,8 @@ def main() -> None:
     print(rolling_metrics)
     print("\nCombined forecast ranking:")
     print(combined)
+    print("\nMulti-horizon forecast comparison:")
+    print(multihorizon_metrics.head(12))
 
 
 if __name__ == "__main__":

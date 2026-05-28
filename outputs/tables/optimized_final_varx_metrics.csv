@@ -1,0 +1,5 @@
+variable,RMSE,MAE,naive_RMSE,relative_RMSE_vs_no_leak_naive,directional_accuracy,Acceptable if
+INF,0.19195500818474645,0.1393077081526715,0.18827337085226004,1.0195547427436005,0.5833333333333334,lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better
+UNRATE,0.9042568463911174,0.8581703082069925,0.7184087354084102,1.2586941135634353,0.5833333333333334,lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better
+INDPRO_GROWTH,0.6539182270793875,0.4951604241504103,0.58821631447884,1.1116968553630808,0.8055555555555556,lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better
+M2_GROWTH,0.28475162424611594,0.25094310001429887,1.1686114239752965,0.24366664436453034,0.5833333333333334,lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better

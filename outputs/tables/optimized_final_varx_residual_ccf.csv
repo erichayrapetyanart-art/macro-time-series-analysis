@@ -1,0 +1,17 @@
+source_residual,target_residual,lag_of_max_abs_ccf,ccf_at_max_abs_lag,max_abs_ccf,Acceptable if
+INF,INF,11,0.12054199963603582,0.12054199963603582,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,UNRATE,0,-0.1526401872225708,0.1526401872225708,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,INDPRO_GROWTH,12,-0.14250566891700533,0.14250566891700533,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INF,M2_GROWTH,0,-0.1876116719441846,0.1876116719441846,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,INF,0,-0.15264018722257078,0.15264018722257078,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,UNRATE,12,0.09210308512680347,0.09210308512680347,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,INDPRO_GROWTH,0,-0.7346891178093274,0.7346891178093274,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+UNRATE,M2_GROWTH,0,0.5057342649864557,0.5057342649864557,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,INF,-12,-0.1425056689170053,0.1425056689170053,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,UNRATE,0,-0.7346891178093274,0.7346891178093274,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,INDPRO_GROWTH,10,0.16167809062108465,0.16167809062108465,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+INDPRO_GROWTH,M2_GROWTH,0,-0.48392777934617837,0.48392777934617837,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+M2_GROWTH,INF,0,-0.1876116719441846,0.1876116719441846,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+M2_GROWTH,UNRATE,0,0.5057342649864557,0.5057342649864557,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+M2_GROWTH,INDPRO_GROWTH,0,-0.48392777934617837,0.48392777934617837,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
+M2_GROWTH,M2_GROWTH,6,0.0945523523159545,0.0945523523159545,cross-series CCF may include lag 0; autocorrelation diagnostics exclude lag 0
