@@ -1,0 +1,9 @@
+test,Acceptable if,lag_order,aic,bic,total_acf_lag_exceedances,stable_system,multivariate_whiteness_p_value
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",1,-7.683628293046127,-7.117024514809804,30,True,1.4540649737184852e-73
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",2,-8.431382199807425,-7.485156843861195,15,True,5.495339447300848e-18
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",3,-8.549540099320025,-7.222172826098475,11,True,1.313063246645912e-11
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",4,-8.605371145426504,-6.895331430756951,8,True,1.4630333745350386e-07
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",5,-8.579163630443425,-6.484910670669432,6,True,2.696686533805226e-06
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",6,-8.534041752228566,-6.054024368202866,5,True,3.3547970961557707e-06
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",7,-8.493478943847318,-5.626135483777722,8,True,1.1386974146172305e-07
+Lag-order residual autocorrelation robustness,"stable system, fewer ACF exceedances, and Portmanteau p-value > 0.05 are preferred",8,-8.479703402400355,-5.223461643531967,6,True,8.471567751212514e-07

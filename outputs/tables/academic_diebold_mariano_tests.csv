@@ -1,0 +1,13 @@
+horizon,model,benchmark,Acceptable if,dm_statistic,p_value,reject_equal_accuracy_at_5pct,mean_loss_difference_model_minus_benchmark
+1,Ridge Regression,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.6856218032732206,0.09186866694960671,False,-0.00845021457087704
+1,VAR,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.1758366944563565,0.2396601399947167,False,-0.008484983522723411
+1,VARX,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-0.967685625410161,0.3332013992541112,False,-0.005174177332003942
+3,Ridge Regression,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-0.8166967485605642,0.4141017499031545,False,-0.007640586417498074
+3,VAR,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.468135615302774,0.14206738898075022,False,-0.009364493283961342
+3,VARX,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.523781436207479,0.12756331835767143,False,-0.010377334089823383
+6,Ridge Regression,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.9851579921934495,0.0471268963660354,True,-0.013534320477537703
+6,VAR,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.9403349309145006,0.052338998835710804,False,-0.02894557734864643
+6,VARX,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.5668894973049994,0.11714052301031175,False,-0.028182589536779754
+12,Ridge Regression,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-0.7269205186728831,0.4672746467915241,False,-0.007190666389161285
+12,VAR,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.9213117124173877,0.05469242142801445,False,-0.049333069698665494
+12,VARX,Random Walk,p-value < 0.05 rejects equal forecast accuracy against the random-walk benchmark,-1.6506422171135504,0.09881165307681683,False,-0.047792131684935325

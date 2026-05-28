@@ -1,0 +1,13 @@
+test,Acceptable if,source_residual,target_residual,max_abs_ccf_lag_1_to_24,confidence_bound_approx,num_lags_outside_bound,any_lag_outside_bound
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,UNRATE,INF,0.11594488300768228,0.10175812980362833,1,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INDPRO_GROWTH,INF,0.10002534526684527,0.10175812980362833,0,False
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,M2_GROWTH,INF,0.13802340996982282,0.10175812980362833,3,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INF,UNRATE,0.10010685962416653,0.10175812980362833,0,False
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INDPRO_GROWTH,UNRATE,0.12263626905635404,0.10175812980362833,2,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,M2_GROWTH,UNRATE,0.08651723344660649,0.10175812980362833,0,False
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INF,INDPRO_GROWTH,0.15605558186490806,0.10175812980362833,1,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,UNRATE,INDPRO_GROWTH,0.14656789323886044,0.10175812980362833,3,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,M2_GROWTH,INDPRO_GROWTH,0.10432944632663411,0.10175812980362833,1,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INF,M2_GROWTH,0.11784797059050695,0.10175812980362833,1,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,UNRATE,M2_GROWTH,0.13717754310647667,0.10175812980362833,1,True
+Residual cross-correlation visual bound check,most residual cross-correlations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INDPRO_GROWTH,M2_GROWTH,0.10285540610931136,0.10175812980362833,1,True

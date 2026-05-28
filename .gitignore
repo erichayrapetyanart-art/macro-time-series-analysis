@@ -3,7 +3,11 @@ __pycache__/
 .DS_Store
 .env
 .matplotlib/
-data/*.csv
+
+# Keep dashboard deployment artifacts tracked.
+# Render needs the small local CSV inputs and precomputed result tables.
 outputs/figures/*.png
-outputs/tables/*.csv
-outputs/tables/*.txt
+
+# Generated presentation/export scratch should stay local.
+outputs/manual-*/
+outputs/**/node_modules/

@@ -1,0 +1,4 @@
+test,Acceptable if,left_variable,right_variable,residual_adf_p_value,cointegrated_at_5pct
+Engle-Granger residual ADF,residual ADF p-value < 0.05 supports pairwise cointegration,log_CPI,log_M2,0.20654540391522058,False
+Engle-Granger residual ADF,residual ADF p-value < 0.05 supports pairwise cointegration,log_CPI,UMCSENT,0.3650291079881798,False
+Engle-Granger residual ADF,residual ADF p-value < 0.05 supports pairwise cointegration,log_M2,UMCSENT,0.426660432219404,False

@@ -1,0 +1,6 @@
+predictor,best_lag_months,best_ssr_ftest_p_value,granger_causes_inflation_at_5pct
+unemployment_rate,1,0.7205049086324196,False
+fed_funds_rate,3,0.04659368536947485,True
+industrial_production_growth_yoy,1,0.029958639128315496,True
+m2_growth_yoy,5,0.0005064999655984887,True
+consumer_sentiment_change_yoy,4,0.0531519997060714,False

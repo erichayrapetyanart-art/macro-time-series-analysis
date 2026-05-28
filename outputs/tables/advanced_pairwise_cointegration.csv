@@ -1,0 +1,2 @@
+left_variable,right_variable,residual_adf_p_value,cointegrated_at_5pct
+log_CPI,log_M2,0.20654540391522058,False

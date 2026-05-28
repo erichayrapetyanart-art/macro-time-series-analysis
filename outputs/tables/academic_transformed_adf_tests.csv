@@ -1,0 +1,7 @@
+test,Acceptable if,variable,adf_statistic,p_value,used_lag,n_obs,stationary_at_5pct
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,FEDFUNDS,-3.0706160304272476,0.02880554687670857,8,366,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,INF,-3.573115963455141,0.006296288259860874,14,360,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,UNRATE,-3.1566335447277827,0.022636176092075515,0,374,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,INDPRO_GROWTH,-14.40699567657323,8.325500717543882e-27,1,373,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,M2_GROWTH,-5.646654634835424,1.007755870494013e-06,4,370,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,SENTIMENT_CHANGE,-11.637947688538317,2.181755337016185e-21,4,370,True

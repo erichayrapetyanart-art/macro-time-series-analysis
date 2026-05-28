@@ -1,0 +1,7 @@
+test,Acceptable if,variable,adf_statistic,p_value,used_lag,n_obs,stationary_at_5pct
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,CPI,1.8926535788155323,0.9985161076149162,15,360,False
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,UNRATE,-3.1612105103109354,0.022342650405858887,0,375,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,FEDFUNDS,-2.871376994409714,0.048779144540974546,9,366,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,INDPRO,-2.8678863591435184,0.049211850116746746,2,373,True
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,M2,0.9285957399995013,0.9934523880223617,13,362,False
+Augmented Dickey-Fuller,p-value < 0.05 supports stationarity,UMCSENT,-1.1492029153670387,0.6950571126397802,6,369,False

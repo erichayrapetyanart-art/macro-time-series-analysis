@@ -157,7 +157,7 @@ def is_baseline_configuration(
 
 
 @st.cache_data
-def load_project_data(cache_version: str = "restricted-models-v1") -> dict[str, pd.DataFrame]:
+def load_project_data(cache_version: str = "irf-ci-all-shocks-v1") -> dict[str, pd.DataFrame]:
     return load_project_data_uncached()
 
 
@@ -1028,6 +1028,11 @@ elif page == "IRF and FEVD":
                 & (data["var_irf_ci"]["shock"] == shock)
                 & (data["var_irf_ci"]["horizon"] <= horizon)
             ].copy()
+            if ci_df.empty:
+                st.info(
+                    "No precomputed confidence bands are available for this shock. "
+                    "The response path is still shown, but lower/upper bands are omitted."
+                )
         st.plotly_chart(
             plot_response_grid_with_ci(irf_df, shock, f"VAR IRFs: All Responses to {shock} Shock", ci_df=ci_df),
             width="stretch",

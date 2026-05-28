@@ -1,0 +1,3 @@
+model,target,rmse
+Random Forest,INF,0.3354029096457141
+VAR,INF,0.32313138143119496

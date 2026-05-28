@@ -1,0 +1,17 @@
+horizon,model,Acceptable if,n_forecasts,rmse,mae,directional_accuracy,relative_rmse_vs_random_walk
+1,VAR,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,23,0.16106464534605763,0.11717628508011405,0.7391304347826086,0.868064248978578
+1,Ridge Regression,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,23,0.1611725439778677,0.11331937721902281,0.6086956521739131,0.8686457729038739
+1,VARX,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,23,0.17103399127416397,0.12358449808450794,0.6521739130434783,0.9217944314608697
+1,Random Walk,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,23,0.18554461324213845,0.13704739866438248,0.0,1.0
+3,VARX,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,21,0.20134934392195605,0.14872886930649026,0.7619047619047619,0.8922996955116048
+3,VAR,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,21,0.2038489614976348,0.1551658641070639,0.8095238095238095,0.9033770000522052
+3,Ridge Regression,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,21,0.2080343865088833,0.14326585856843493,0.5714285714285714,0.921925128346933
+3,Random Walk,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,21,0.22565214908709716,0.17859647256554773,0.0,1.0
+6,VAR,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,18,0.20445765182516093,0.14559570324780635,0.6666666666666666,0.7686784816476442
+6,VARX,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,18,0.20631509688271826,0.15054076334124977,0.7222222222222222,0.7756617274877561
+6,Ridge Regression,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,18,0.2391948750725389,0.17715465897394378,0.6666666666666666,0.8992764601732088
+6,Random Walk,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,18,0.2659859183086676,0.2111198770513973,0.0,1.0
+12,VAR,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,12,0.22526451224806635,0.15763144436133997,0.8333333333333334,0.7120742332243085
+12,VARX,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,12,0.2286592191276997,0.17084601378850714,0.8333333333333334,0.7228050992369462
+12,Ridge Regression,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,12,0.3047728724605644,0.23219975437573,0.5833333333333334,0.9634047871061823
+12,Random Walk,Lower RMSE/MAE and relative RMSE below 1 are better; higher directional accuracy is better,12,0.3163497592491967,0.22002359460087847,0.0,1.0

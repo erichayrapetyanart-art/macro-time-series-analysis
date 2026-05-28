@@ -1,0 +1,7 @@
+test,Acceptable if,equation,max_abs_acf_lag_1_to_24,confidence_bound_approx,num_lags_outside_bound,any_lag_outside_bound
+Residual ACF visual bound check,most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds,FEDFUNDS,0.12882735699239298,0.10175812980362833,1,True
+Residual ACF visual bound check,most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INF,0.13384939360960052,0.10175812980362833,2,True
+Residual ACF visual bound check,most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds,UNRATE,0.08325810280769738,0.10175812980362833,0,False
+Residual ACF visual bound check,most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds,INDPRO_GROWTH,0.13854677410602628,0.10175812980362833,2,True
+Residual ACF visual bound check,most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds,M2_GROWTH,0.1264965260293082,0.10175812980362833,2,True
+Residual ACF visual bound check,most residual autocorrelations stay inside approximately +/-1.96/sqrt(T) confidence bounds,SENTIMENT_CHANGE,0.14789450046037156,0.10175812980362833,1,True

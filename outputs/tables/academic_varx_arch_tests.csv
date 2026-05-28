@@ -1,0 +1,5 @@
+test,Acceptable if,equation,arch_lm_stat_lag12,arch_lm_p_value_lag12,arch_f_stat_lag12,arch_f_p_value_lag12,arch_effects_at_5pct
+ARCH-LM residual volatility test,ARCH-LM p-value > 0.05 is preferred if no ARCH effects are desired,INF,54.35519658332482,2.361066649660393e-07,5.144487888546995,6.127763522949508e-08,True
+ARCH-LM residual volatility test,ARCH-LM p-value > 0.05 is preferred if no ARCH effects are desired,UNRATE,0.23297048127199782,0.9999999968596621,0.018723335732253356,0.999999997246245,False
+ARCH-LM residual volatility test,ARCH-LM p-value > 0.05 is preferred if no ARCH effects are desired,INDPRO_GROWTH,8.738482730064732,0.725090273864593,0.7193470391706086,0.732599334720011,False
+ARCH-LM residual volatility test,ARCH-LM p-value > 0.05 is preferred if no ARCH effects are desired,M2_GROWTH,80.87551180408911,2.8090253122073343e-12,8.384413057179769,5.99989095047689e-14,True

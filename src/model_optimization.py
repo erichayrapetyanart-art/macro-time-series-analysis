@@ -807,26 +807,30 @@ def cholesky_ordering_robustness(train: pd.DataFrame, lag_order: int) -> tuple[p
         except Exception:
             lower = np.full_like(paths, np.nan)
             upper = np.full_like(paths, np.nan)
-        shock_idx = order.index("FEDFUNDS")
-        for response in responses:
-            if response not in order:
-                continue
-            response_idx = order.index(response)
-            for horizon in range(IRF_HORIZON + 1):
-                record = {
-                    "ordering_name": ordering_name,
-                    "ordering": ", ".join(order),
-                    "shock": "FEDFUNDS",
-                    "response": response,
-                    "horizon": horizon,
-                    "value": paths[horizon, response_idx, shock_idx],
-                    "lower_95": lower[horizon, response_idx, shock_idx],
-                    "upper_95": upper[horizon, response_idx, shock_idx],
-                    "Acceptable if": "similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity",
-                }
-                ci_rows.append(record)
-                if horizon in selected_horizons:
-                    rows.append(record)
+        for shock in order:
+            shock_idx = order.index(shock)
+            for response in order:
+                response_idx = order.index(response)
+                for horizon in range(IRF_HORIZON + 1):
+                    record = {
+                        "ordering_name": ordering_name,
+                        "ordering": ", ".join(order),
+                        "shock": shock,
+                        "response": response,
+                        "horizon": horizon,
+                        "value": paths[horizon, response_idx, shock_idx],
+                        "lower_95": lower[horizon, response_idx, shock_idx],
+                        "upper_95": upper[horizon, response_idx, shock_idx],
+                        "Acceptable if": "IRF confidence bands should be interpreted with Cholesky-ordering and residual-diagnostic caveats",
+                    }
+                    ci_rows.append(record)
+                    if shock == "FEDFUNDS" and response in responses and horizon in selected_horizons:
+                        rows.append(
+                            {
+                                **record,
+                                "Acceptable if": "similar signs across defensible orderings indicate stronger IRF robustness; differences indicate identification sensitivity",
+                            }
+                        )
     return pd.DataFrame(rows), pd.DataFrame(ci_rows)
 
 
@@ -871,6 +875,10 @@ def independent_irf_errbands(
 
 
 def save_cholesky_ordering_figure(robustness: pd.DataFrame) -> None:
+    if robustness.empty:
+        return
+    if "shock" in robustness.columns:
+        robustness = robustness.loc[robustness["shock"] == "FEDFUNDS"].copy()
     if robustness.empty:
         return
     responses = ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
