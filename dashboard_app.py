@@ -881,11 +881,11 @@ elif page == "Forecast Comparison":
 
     st.subheader("One-Step / Direct Inflation Benchmark Comparison")
     st.info(
-        "Do not compare this table mechanically with the optimized VAR RMSE above. The selected-model RMSE "
-        "around 0.176 comes from the optimized recursive VAR forecast design. The all-benchmark table uses the "
-        "notebook's one-step/direct benchmark design, where VAR can appear around 0.199. Ridge may be best for "
-        "pure one-step prediction, but VAR/VARX remain more useful for economic interpretation because they provide "
-        "Granger causality, IRF, FEVD, and policy-shock analysis."
+        "Do not compare this table mechanically with the optimized VAR/VARX panel above unless the forecast_design "
+        "column is the same. The selected-model VAR and VARX lines use the recursive final-36-month system forecast. "
+        "ML benchmark lines use one-step lagged-feature prediction, so Ridge may be best for pure one-step prediction. "
+        "VAR/VARX remain more useful for economic interpretation because they provide Granger causality, IRF, FEVD, "
+        "and policy-shock analysis."
     )
     forecasts = combined_inflation_forecasts(data["econ_forecasts"], data["ml_forecasts"])
     if not forecasts.empty:
