@@ -1,8 +1,7 @@
 test,Acceptable if,equation,jarque_bera_stat,jarque_bera_p_value,skewness,kurtosis_pearson,reject_normality_at_5pct,multivariate_normality_stat,multivariate_normality_p_value,multivariate_normality_method
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,FEDFUNDS,4081.9500037748144,0.0,-2.3005539364327774,18.818975072011444,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INF,136.21863615402182,2.6332918376083495e-30,-0.04035175705668763,6.024142963906287,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,UNRATE,293247.365919976,0.0,9.129133232012482,141.40093253794953,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INDPRO_GROWTH,21902.483010873395,0.0,-3.846138668439941,40.37137126872089,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,M2_GROWTH,5579.091901137425,0.0,2.0243372250391314,21.83381064374968,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,SENTIMENT_CHANGE,8.088736717553013,0.017520768000730602,-0.2772244105593493,3.489966171250388,True,,,
-Multivariate residual normality,system normality p-value > 0.05 is preferred; rejection is common during crisis periods,SYSTEM,,,,,True,280233.52555879427,0.0,statsmodels VAR normality test
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INF,134.41270542276493,6.496087537954426e-30,-0.07970439753963741,6.000898935355942,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,D_FEDFUNDS,2468.456121486732,0.0,-1.9876874714833772,15.18001880385718,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,UNRATE,410012.44358249725,0.0,10.346708100425248,166.7666334308794,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INDPRO_GROWTH,33702.223193220256,0.0,-4.362251134353529,49.51765336780856,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,SENTIMENT_CHANGE,17.269661200916243,0.00017780366883885675,-0.31724199143854037,3.875143581488638,True,,,
+Multivariate residual normality,system normality p-value > 0.05 is preferred; rejection is common during crisis periods,SYSTEM,,,,,True,398782.2403822837,0.0,statsmodels VAR normality test

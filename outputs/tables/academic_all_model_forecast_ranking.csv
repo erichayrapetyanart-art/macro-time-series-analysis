@@ -1,8 +1,8 @@
 model,Acceptable if,target,forecast_design,rmse,mae,directional_accuracy
-Ridge Regression,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.15947831724290856,0.11680537522069237,0.6111111111111112
+Ridge Regression,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.15845680242865653,0.11842592595541203,0.5833333333333334
+Gradient Boosting,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.1712261745902064,0.11968702110272142,0.6944444444444444
 Random Walk (one-step),Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.17391206179548394,0.13200847549357736,
-Random Forest,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.1794147451543263,0.13033343253923316,0.6666666666666666
-Gradient Boosting,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.18358322154677295,0.13899016792093527,0.6111111111111112
+VAR,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.17699528222902075,0.12579955926615902,0.75
+Random Forest,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.17873093419791178,0.12952757759237415,0.6666666666666666
 Random Walk (direct 36-month),Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.18827337085226,0.15149727339506136,
-VAR,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.1991237794274766,0.16955840059550123,0.2777777777777778
-VARX,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.21762178121320516,0.1830795599392796,0.2777777777777778
+VARX,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.1919550081847465,0.1393077081526714,0.75

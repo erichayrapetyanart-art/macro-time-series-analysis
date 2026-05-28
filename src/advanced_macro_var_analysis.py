@@ -44,42 +44,39 @@ ROLLING_HORIZON = 3
 MAX_VAR_LAGS = 12
 FORECAST_HORIZONS = [1, 3, 6, 12]
 VAR_COLUMNS = [
-    "FEDFUNDS",
     "INF",
+    "D_FEDFUNDS",
     "UNRATE",
     "INDPRO_GROWTH",
-    "M2_GROWTH",
     "SENTIMENT_CHANGE",
 ]
 
 VARX_ENDOG = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH"]
-VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE", "D_2008", "D_COVID"]
+VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE"]
+CRISIS_DUMMIES = ["D_2008", "D_COVID"]
 BASELINE_ORDERING = VAR_COLUMNS.copy()
 ALTERNATIVE_ORDERINGS = {
     "baseline_policy_first": BASELINE_ORDERING,
     "inflation_before_policy": [
         "INF",
-        "FEDFUNDS",
+        "D_FEDFUNDS",
         "UNRATE",
         "INDPRO_GROWTH",
-        "M2_GROWTH",
         "SENTIMENT_CHANGE",
     ],
     "real_activity_before_policy": [
         "UNRATE",
         "INDPRO_GROWTH",
         "INF",
-        "FEDFUNDS",
-        "M2_GROWTH",
+        "D_FEDFUNDS",
         "SENTIMENT_CHANGE",
     ],
     "sentiment_first": [
         "SENTIMENT_CHANGE",
-        "FEDFUNDS",
+        "D_FEDFUNDS",
         "INF",
         "UNRATE",
         "INDPRO_GROWTH",
-        "M2_GROWTH",
     ],
 }
 
@@ -145,6 +142,12 @@ def save_variable_dictionary() -> pd.DataFrame:
             "fred_id": "FEDFUNDS",
             "economic_role": "Monetary-policy stance and short-term interest rate.",
             "expected_use": "Endogenous in VAR, exogenous in VARX",
+        },
+        {
+            "variable": "D_FEDFUNDS",
+            "fred_id": "FEDFUNDS",
+            "economic_role": "Monthly policy-rate change, used as a stationarity robustness treatment.",
+            "expected_use": "Robustness alternative to level FEDFUNDS",
         },
         {
             "variable": "INDPRO",
@@ -230,6 +233,7 @@ def run_pairwise_cointegration(raw: pd.DataFrame, raw_adf: pd.DataFrame) -> pd.D
 def transform_for_models(raw: pd.DataFrame) -> pd.DataFrame:
     df = pd.DataFrame(index=raw.index)
     df["FEDFUNDS"] = raw["FEDFUNDS"]
+    df["D_FEDFUNDS"] = raw["FEDFUNDS"].diff()
     df["INF"] = np.log(raw["CPI"]).diff() * 100
     df["UNRATE"] = raw["UNRATE"]
     df["INDPRO_GROWTH"] = np.log(raw["INDPRO"]).diff() * 100
@@ -335,7 +339,8 @@ def split_train_test(model_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame
 
 
 def select_and_fit_var(model_df: pd.DataFrame, dummies: pd.DataFrame) -> tuple[object, pd.DataFrame]:
-    lag_selection = VAR(model_df, exog=dummies).select_order(maxlags=MAX_VAR_LAGS)
+    baseline_df = model_df[VAR_COLUMNS]
+    lag_selection = VAR(baseline_df).select_order(maxlags=MAX_VAR_LAGS)
     lag_table = pd.DataFrame(
         {
             "AIC": lag_selection.ics["aic"],
@@ -350,12 +355,12 @@ def select_and_fit_var(model_df: pd.DataFrame, dummies: pd.DataFrame) -> tuple[o
     )
     lag_table.to_csv(TABLE_DIR / "academic_var_lag_selection.csv")
 
-    selected_lag = int(lag_selection.aic)
-    selected_lag = max(selected_lag, 1)
-    results = VAR(model_df, exog=dummies).fit(selected_lag, trend="c")
+    selected_lag = 4
+    results = VAR(baseline_df).fit(selected_lag, trend="c")
 
     with open(TABLE_DIR / "academic_var_model_summary.txt", "w", encoding="utf-8") as file:
-        file.write(f"Selected AIC lag order: {selected_lag}\n\n")
+        file.write("Selected official lag order: 4\n")
+        file.write("Lag order is selected by the FEDFUNDS-vs-D_FEDFUNDS baseline decision, not by AIC alone.\n\n")
         file.write(str(results.summary()))
 
     return results, lag_table
@@ -363,7 +368,7 @@ def select_and_fit_var(model_df: pd.DataFrame, dummies: pd.DataFrame) -> tuple[o
 
 def fit_varx(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lags: int) -> object:
     endog = model_df[VARX_ENDOG]
-    exog = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
+    exog = model_df[VARX_EXOG]
     results = VAR(endog, exog=exog).fit(p_lags, trend="c")
 
     with open(TABLE_DIR / "academic_varx_model_summary.txt", "w", encoding="utf-8") as file:
@@ -377,7 +382,7 @@ def fit_varx(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lags: int) -> obje
 
 def select_varx_lag_order(model_df: pd.DataFrame, dummies: pd.DataFrame) -> pd.DataFrame:
     endog = model_df[VARX_ENDOG]
-    exog = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
+    exog = model_df[VARX_EXOG]
     lag_selection = VAR(endog, exog=exog).select_order(maxlags=MAX_VAR_LAGS)
     lag_table = pd.DataFrame(
         {
@@ -401,9 +406,9 @@ def save_model_architecture(p_lags: int) -> tuple[pd.DataFrame, pd.DataFrame]:
             "component": "Primary reduced-form model",
             "model": "VAR",
             "endogenous_variables": ", ".join(VAR_COLUMNS),
-            "exogenous_variables": "D_2008, D_COVID",
+            "exogenous_variables": "none",
             "lag_order": p_lags,
-            "selection_or_role": "Lag order selected by minimum AIC over candidate lags 0-12; BIC/HQIC and residual robustness are reported as checks.",
+            "selection_or_role": "D_FEDFUNDS baseline selected by stationarity-aware model comparison; lag 4 balances diagnostics, forecasting, parsimony, and interpretability.",
             "purpose": "Main system model for dynamic interactions, Granger causality, residual diagnostics, IRF, and FEVD.",
         },
         {
@@ -412,14 +417,14 @@ def save_model_architecture(p_lags: int) -> tuple[pd.DataFrame, pd.DataFrame]:
             "endogenous_variables": ", ".join(VARX_ENDOG),
             "exogenous_variables": ", ".join(VARX_EXOG),
             "lag_order": p_lags,
-            "selection_or_role": "Uses the same lag order as the baseline VAR for comparability.",
+            "selection_or_role": "Keeps level FEDFUNDS as the exogenous policy-stance path because it forecasts materially better than D_FEDFUNDS in VARX.",
             "purpose": "Conditional forecast model where policy/sentiment/crisis controls are treated as externally conditioned paths.",
         },
         {
             "component": "Structural interpretation layer",
             "model": "Recursive SVAR via Cholesky decomposition of VAR residual covariance",
             "endogenous_variables": ", ".join(VAR_COLUMNS),
-            "exogenous_variables": "D_2008, D_COVID",
+            "exogenous_variables": "none",
             "lag_order": p_lags,
             "selection_or_role": "Uses the reduced-form VAR ordering for Cholesky identification.",
             "purpose": "Impulse response and FEVD analysis under explicit contemporaneous recursive restrictions.",
@@ -431,9 +436,9 @@ def save_model_architecture(p_lags: int) -> tuple[pd.DataFrame, pd.DataFrame]:
     ordering_rows = [
         {
             "order": 1,
-            "variable": "FEDFUNDS",
-            "contemporaneous_assumption": "Policy rate can contemporaneously affect all later variables in the recursive system.",
-            "economic_motivation": "Monetary policy is a fast-moving financial/policy variable and Granger results show strong predictive content for inflation, unemployment, production, and money growth.",
+            "variable": "D_FEDFUNDS",
+            "contemporaneous_assumption": "Policy-rate changes can contemporaneously affect all later variables in the recursive system.",
+            "economic_motivation": "D_FEDFUNDS is the stationary policy-change variable selected for the official VAR baseline.",
         },
         {
             "order": 2,
@@ -455,15 +460,9 @@ def save_model_architecture(p_lags: int) -> tuple[pd.DataFrame, pd.DataFrame]:
         },
         {
             "order": 5,
-            "variable": "M2_GROWTH",
-            "contemporaneous_assumption": "Money growth reacts contemporaneously to the variables ordered before it but does not contemporaneously move them under this identification.",
-            "economic_motivation": "Broad money adjusts through banking, portfolio, and liquidity channels and is placed after policy and real-activity indicators.",
-        },
-        {
-            "order": 6,
             "variable": "SENTIMENT_CHANGE",
             "contemporaneous_assumption": "Sentiment is allowed to react contemporaneously to all macro shocks ordered before it.",
-            "economic_motivation": "Survey sentiment is fast-moving but often reflects news about policy, prices, labor markets, output, and liquidity; placing it last is conservative for macro shock interpretation.",
+            "economic_motivation": "Survey sentiment is fast-moving but often reflects news about policy changes, prices, labor markets, and output; placing it last is conservative for macro shock interpretation.",
         },
     ]
     ordering = pd.DataFrame(ordering_rows)
@@ -741,7 +740,7 @@ def model_complexity_table(
 ) -> pd.DataFrame:
     rows = []
     specs = [
-        ("VAR", VAR_COLUMNS, ["D_2008", "D_COVID"], var_results, var_diag, var_norm, var_het),
+        ("VAR", VAR_COLUMNS, [], var_results, var_diag, var_norm, var_het),
         ("VARX", VARX_ENDOG, VARX_EXOG, varx_results, varx_diag, varx_norm, varx_het),
     ]
     for model_name, endog, exog, results, diag, norm, het in specs:
@@ -933,8 +932,9 @@ def lag_residual_autocorrelation_robustness(
     model_df: pd.DataFrame, dummies: pd.DataFrame, max_lag: int = 8
 ) -> pd.DataFrame:
     rows = []
+    baseline_df = model_df[VAR_COLUMNS]
     for p_lag in range(1, max_lag + 1):
-        fitted = VAR(model_df, exog=dummies).fit(p_lag, trend="c")
+        fitted = VAR(baseline_df).fit(p_lag, trend="c")
         residuals = fitted.resid
         confidence_bound = 1.96 / np.sqrt(len(residuals))
         exceedances = 0
@@ -1129,7 +1129,7 @@ def save_irf_fevd(results: object, horizon: int = 24) -> pd.DataFrame:
     irf_paths.to_csv(TABLE_DIR / "academic_irf_paths.csv", index=False)
     irf_table = pd.DataFrame(irf_rows)
     irf_table.to_csv(TABLE_DIR / "academic_irf_interpretation_table.csv", index=False)
-    irf_table.loc[irf_table["shock"] == "FEDFUNDS"].to_csv(
+    irf_table.loc[irf_table["shock"] == "D_FEDFUNDS"].to_csv(
         TABLE_DIR / "academic_irf_monetary_policy_shock.csv", index=False
     )
 
@@ -1263,15 +1263,17 @@ def econometric_forecasts(
     dummies: pd.DataFrame,
     p_lags: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    train_dummies = dummies.loc[train.index]
-    test_dummies = dummies.loc[test.index]
+    train_var = train[VAR_COLUMNS]
+    test_var = test[VAR_COLUMNS]
+    var = VAR(train_var).fit(p_lags, trend="c")
+    var_forecast = var.forecast(
+        train_var.values[-p_lags:],
+        steps=len(test_var),
+    )
+    var_forecast = pd.DataFrame(var_forecast, index=test_var.index, columns=train_var.columns)["INF"]
 
-    var = VAR(train, exog=train_dummies).fit(p_lags, trend="c")
-    var_forecast = var.forecast(train.values[-p_lags:], steps=len(test), exog_future=test_dummies.values)
-    var_forecast = pd.DataFrame(var_forecast, index=test.index, columns=train.columns)["INF"]
-
-    train_varx_exog = pd.concat([train[["FEDFUNDS", "SENTIMENT_CHANGE"]], train_dummies], axis=1)
-    test_varx_exog = pd.concat([test[["FEDFUNDS", "SENTIMENT_CHANGE"]], test_dummies], axis=1)
+    train_varx_exog = train[VARX_EXOG]
+    test_varx_exog = test[VARX_EXOG]
     varx = VAR(train[VARX_ENDOG], exog=train_varx_exog).fit(p_lags, trend="c")
     varx_forecast = varx.forecast(
         train[VARX_ENDOG].values[-p_lags:], steps=len(test), exog_future=test_varx_exog.values
@@ -1335,12 +1337,8 @@ def rolling_varx_forecasts(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lags
     for origin_pos in origins:
         history = model_df.iloc[: origin_pos + 1]
         future = model_df.iloc[origin_pos + 1 : origin_pos + 1 + ROLLING_HORIZON]
-        h_exog = pd.concat(
-            [history[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies.loc[history.index]], axis=1
-        )
-        f_exog = pd.concat(
-            [future[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies.loc[future.index]], axis=1
-        )
+        h_exog = history[VARX_EXOG]
+        f_exog = future[VARX_EXOG]
         fitted = VAR(history[VARX_ENDOG], exog=h_exog).fit(p_lags, trend="c")
         forecast_values = fitted.forecast(
             history[VARX_ENDOG].values[-p_lags:], steps=ROLLING_HORIZON, exog_future=f_exog.values
@@ -1532,11 +1530,11 @@ def multihorizon_forecast_comparison(
             future_dummies = dummies.iloc[origin_pos + 1 : origin_pos + 1 + horizon]
 
             try:
-                var = VAR(history, exog=dummies.loc[history.index]).fit(p_lags, trend="c")
+                history_var = history[VAR_COLUMNS]
+                var = VAR(history_var).fit(p_lags, trend="c")
                 var_path = var.forecast(
-                    history.values[-p_lags:],
+                    history_var.values[-p_lags:],
                     steps=horizon,
-                    exog_future=future_dummies.values,
                 )
                 prediction_rows.append(
                     {
@@ -1545,7 +1543,7 @@ def multihorizon_forecast_comparison(
                         "horizon": horizon,
                         "model": "VAR",
                         "actual": actual,
-                        "forecast": var_path[-1, list(history.columns).index("INF")],
+                        "forecast": var_path[-1, list(history_var.columns).index("INF")],
                         "naive_forecast": baseline,
                     }
                 )
@@ -1553,13 +1551,9 @@ def multihorizon_forecast_comparison(
                 pass
 
             try:
-                train_varx_exog = pd.concat(
-                    [history[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies.loc[history.index]], axis=1
-                )
                 future = model_df.iloc[origin_pos + 1 : origin_pos + 1 + horizon]
-                future_varx_exog = pd.concat(
-                    [future[["FEDFUNDS", "SENTIMENT_CHANGE"]], future_dummies], axis=1
-                )
+                train_varx_exog = history[VARX_EXOG]
+                future_varx_exog = future[VARX_EXOG]
                 varx = VAR(history[VARX_ENDOG], exog=train_varx_exog).fit(p_lags, trend="c")
                 varx_path = varx.forecast(
                     history[VARX_ENDOG].values[-p_lags:],
@@ -1700,24 +1694,25 @@ def expanding_window_robustness(model_df: pd.DataFrame, dummies: pd.DataFrame, p
     rows = []
     end_dates = pd.date_range("2015-12-01", model_df.index[-13], freq="12MS")
     tracked = [
-        ("FEDFUNDS", "INF"),
-        ("FEDFUNDS", "UNRATE"),
-        ("FEDFUNDS", "INDPRO_GROWTH"),
+        ("D_FEDFUNDS", "INF"),
+        ("D_FEDFUNDS", "UNRATE"),
+        ("D_FEDFUNDS", "INDPRO_GROWTH"),
     ]
     for end_date in end_dates:
         if end_date not in model_df.index:
             continue
         end_pos = model_df.index.get_loc(end_date)
         sample = model_df.iloc[: end_pos + 1]
+        sample_var = sample[VAR_COLUMNS]
         if len(sample) < 120:
             continue
         try:
-            selected_lag = int(VAR(sample, exog=dummies.loc[sample.index]).select_order(maxlags=8).aic)
+            selected_lag = int(VAR(sample_var).select_order(maxlags=8).aic)
             selected_lag = max(1, selected_lag)
         except Exception:
             selected_lag = p_lags
         try:
-            fitted = VAR(sample, exog=dummies.loc[sample.index]).fit(selected_lag, trend="c")
+            fitted = VAR(sample_var).fit(selected_lag, trend="c")
             whiteness_p = fitted.test_whiteness(nlags=12).pvalue
         except Exception:
             continue
@@ -1731,14 +1726,12 @@ def expanding_window_robustness(model_df: pd.DataFrame, dummies: pd.DataFrame, p
         forecast_rmse = np.nan
         if len(next_window) > 0:
             try:
-                future_dummies = dummies.loc[next_window.index]
                 forecast_values = fitted.forecast(
-                    sample.values[-selected_lag:],
+                    sample_var.values[-selected_lag:],
                     steps=len(next_window),
-                    exog_future=future_dummies.values,
                 )
                 forecast = pd.Series(
-                    forecast_values[:, sample.columns.get_loc("INF")],
+                    forecast_values[:, sample_var.columns.get_loc("INF")],
                     index=next_window.index,
                 )
                 forecast_rmse = rmse(next_window["INF"], forecast)
@@ -1746,7 +1739,7 @@ def expanding_window_robustness(model_df: pd.DataFrame, dummies: pd.DataFrame, p
                 forecast_rmse = np.nan
         try:
             irf = fitted.irf(12).orth_irfs
-            fed_idx = fitted.names.index("FEDFUNDS")
+            fed_idx = fitted.names.index("D_FEDFUNDS")
             inf_idx = fitted.names.index("INF")
             irf_h6 = irf[6, inf_idx, fed_idx]
         except Exception:
@@ -1788,18 +1781,16 @@ def regime_split_comparison(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lag
     rows = []
     for regime, (start, end) in regimes.items():
         sample = model_df.loc[start:end]
+        sample_var = sample[VAR_COLUMNS]
         if len(sample) <= p_lags + 36:
             continue
-        sample_dummies = dummies.loc[sample.index]
         for model_name in ["VAR", "VARX"]:
             try:
                 if model_name == "VAR":
-                    fitted = VAR(sample, exog=sample_dummies).fit(p_lags, trend="c")
+                    fitted = VAR(sample_var).fit(p_lags, trend="c")
                     coeffs = fitted.params
                 else:
-                    exog = pd.concat(
-                        [sample[["FEDFUNDS", "SENTIMENT_CHANGE"]], sample_dummies], axis=1
-                    )
+                    exog = sample[VARX_EXOG]
                     fitted = VAR(sample[VARX_ENDOG], exog=exog).fit(p_lags, trend="c")
                     coeffs = fitted.params
                 try:
@@ -1810,7 +1801,7 @@ def regime_split_comparison(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lag
                 for target in ["INF", "UNRATE", "INDPRO_GROWTH"]:
                     if target not in coeffs.columns:
                         continue
-                    param = "L1.FEDFUNDS"
+                    param = "L1.D_FEDFUNDS" if model_name == "VAR" else "FEDFUNDS"
                     rows.append(
                         {
                             "regime": regime,
@@ -1820,7 +1811,7 @@ def regime_split_comparison(model_df: pd.DataFrame, dummies: pd.DataFrame, p_lag
                             "end_date": sample.index.max(),
                             "n_obs": len(sample),
                             "lag_order": p_lags,
-                            "relationship": f"FEDFUNDS -> {target}",
+                            "relationship": f"{'D_FEDFUNDS' if model_name == 'VAR' else 'FEDFUNDS'} -> {target}",
                             "coefficient_L1": coeffs.loc[param, target] if param in coeffs.index else np.nan,
                             "p_value_L1": pvalues.loc[param, target] if param in pvalues.index else np.nan,
                             "stable_system": fitted.is_stable(),
@@ -1854,17 +1845,19 @@ def crisis_dummy_robustness(
             try:
                 if model_name == "VAR":
                     exog = dummies[dummy_cols] if dummy_cols else None
-                    fitted = VAR(model_df, exog=exog).fit(p_lags, trend="c")
+                    fitted = VAR(model_df[VAR_COLUMNS], exog=exog).fit(p_lags, trend="c")
                     train_exog = dummies.loc[train.index, dummy_cols] if dummy_cols else None
                     test_exog = dummies.loc[test.index, dummy_cols] if dummy_cols else None
-                    fitted_train = VAR(train, exog=train_exog).fit(p_lags, trend="c")
+                    train_var = train[VAR_COLUMNS]
+                    test_var = test[VAR_COLUMNS]
+                    fitted_train = VAR(train_var, exog=train_exog).fit(p_lags, trend="c")
                     forecast_values = fitted_train.forecast(
-                        train.values[-p_lags:],
-                        steps=len(test),
+                        train_var.values[-p_lags:],
+                        steps=len(test_var),
                         exog_future=test_exog.values if test_exog is not None else None,
                     )
                     forecast = pd.Series(
-                        forecast_values[:, train.columns.get_loc("INF")], index=test.index
+                        forecast_values[:, train_var.columns.get_loc("INF")], index=test_var.index
                     )
                 else:
                     base_exog = model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]]
@@ -1928,17 +1921,17 @@ def irf_robustness(results: object, model_df: pd.DataFrame, dummies: pd.DataFram
                 }
             )
         try:
-            fitted = VAR(model_df[ordering], exog=dummies).fit(p_lags, trend="c")
+            fitted = VAR(model_df[ordering]).fit(p_lags, trend="c")
             irf = fitted.irf(24).orth_irfs
-            shock_idx = ordering.index("FEDFUNDS")
-            for response in ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"]:
+            shock_idx = ordering.index("D_FEDFUNDS")
+            for response in ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]:
                 response_idx = ordering.index(response)
                 path = irf[:, response_idx, shock_idx]
                 summary_rows.append(
                     {
                         "ordering_name": name,
                         "Acceptable if": "similar response signs and magnitudes across Cholesky orderings indicate stronger robustness",
-                        "shock": "FEDFUNDS",
+                        "shock": "D_FEDFUNDS",
                         "response": response,
                         "impact_h0": path[0],
                         "response_h3": path[3],
@@ -1957,10 +1950,10 @@ def irf_robustness(results: object, model_df: pd.DataFrame, dummies: pd.DataFram
     summary.to_csv(TABLE_DIR / "academic_irf_robustness_summary.csv", index=False)
 
     irf = results.irf(24)
-    responses = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH", "SENTIMENT_CHANGE"]
+    responses = ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
     fig, axes = plt.subplots(len(responses), 1, figsize=(11, 12), sharex=True)
     paths = irf.orth_irfs
-    fed_idx = results.names.index("FEDFUNDS")
+    fed_idx = results.names.index("D_FEDFUNDS")
     try:
         lower, upper = irf.errband_mc(orth=True, repl=300, signif=0.05, seed=42)
     except Exception:
@@ -1978,7 +1971,7 @@ def irf_robustness(results: object, model_df: pd.DataFrame, dummies: pd.DataFram
                 alpha=0.18,
             )
         ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
-        ax.set_title(f"Response of {response} to FEDFUNDS Shock")
+        ax.set_title(f"Response of {response} to D_FEDFUNDS Shock")
         ax.grid(alpha=0.25)
     axes[-1].set_xlabel("Horizon in months")
     plt.tight_layout()
@@ -2015,10 +2008,8 @@ def main() -> None:
     varx_results = fit_varx(model_df, dummies, p_lags)
     save_parameter_significance(var_results, "academic_var")
     save_parameter_significance(varx_results, "academic_varx")
-    var_y, var_x = build_var_regression_design(
-        model_df, VAR_COLUMNS, p_lags, dummies[["D_2008", "D_COVID"]]
-    )
-    varx_exog = pd.concat([model_df[["FEDFUNDS", "SENTIMENT_CHANGE"]], dummies], axis=1)
+    var_y, var_x = build_var_regression_design(model_df, VAR_COLUMNS, p_lags)
+    varx_exog = model_df[VARX_EXOG]
     varx_y, varx_x = build_var_regression_design(model_df, VARX_ENDOG, p_lags, varx_exog)
     robust_parameter_significance(var_y, var_x, "academic_var", hac_lags=min(12, p_lags * 2))
     robust_parameter_significance(varx_y, varx_x, "academic_varx", hac_lags=min(12, p_lags * 2))
@@ -2056,6 +2047,12 @@ def main() -> None:
     expanding_window_robustness(model_df, dummies, p_lags)
     regime_split_comparison(model_df, dummies, p_lags)
     crisis_dummy_robustness(model_df, dummies, p_lags)
+    try:
+        from src.fedfunds_diff_robustness import main as run_fedfunds_diff_robustness
+    except ModuleNotFoundError:
+        from fedfunds_diff_robustness import main as run_fedfunds_diff_robustness
+
+    run_fedfunds_diff_robustness()
 
     print("Academic time-series pipeline completed successfully.")
     print(f"Raw data shape: {raw.shape}")

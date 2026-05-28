@@ -1,0 +1,10 @@
+lag,AIC,BIC,HQIC,FPE,Acceptable if
+0,-1.3766840848301032,-1.2388429352696055,-1.3217071841893657,0.2524150418219292,Lower information criterion is preferred; final lag must preserve degrees of freedom
+1,-4.653946990558037,-4.412724978827166,-4.557737414436747,0.009524116968285123,Lower information criterion is preferred; final lag must preserve degrees of freedom
+2,-4.7636301181852305,-4.419027244283986,-4.626187866583386,0.008535042545679414,Lower information criterion is preferred; final lag must preserve degrees of freedom
+3,-4.7914744420584965,-4.343490705986879,-4.612799514976099,0.008301216861498761,Lower information criterion is preferred; final lag must preserve degrees of freedom
+4,-4.810820896186598,-4.259456297944608,-4.5909132936236485,0.008143015733869805,Lower information criterion is preferred; final lag must preserve degrees of freedom
+5,-4.829948017547977,-4.175202557135613,-4.568807739504474,0.007989964249184349,Lower information criterion is preferred; final lag must preserve degrees of freedom
+6,-4.840944787318682,-4.082818464735944,-4.5385718337946255,0.007904239736216253,Lower information criterion is preferred; final lag must preserve degrees of freedom
+7,-4.81011408326372,-3.9486068985106093,-4.466508454259111,0.008153977760665896,Lower information criterion is preferred; final lag must preserve degrees of freedom
+8,-4.791134012122599,-3.8262459651991154,-4.406295707637438,0.008313137923429643,Lower information criterion is preferred; final lag must preserve degrees of freedom

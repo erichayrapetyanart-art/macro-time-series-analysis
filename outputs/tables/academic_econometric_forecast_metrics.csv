@@ -1,4 +1,4 @@
 model,Acceptable if,target,forecast_design,rmse,mae,directional_accuracy
-VAR,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.1991237794274766,0.16955840059550123,0.2777777777777778
-VARX,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.21762178121320516,0.1830795599392796,0.2777777777777778
+VAR,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.17699528222902075,0.12579955926615902,0.75
+VARX,Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.1919550081847465,0.1393077081526714,0.75
 Random Walk (direct 36-month),Lower RMSE/MAE is better; higher directional accuracy is better,INF,final_36_months,0.18827337085226,0.15149727339506136,

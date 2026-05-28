@@ -85,17 +85,17 @@ st.markdown(
 )
 
 
-VAR_COLUMNS = ["INF", "FEDFUNDS", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
-VAR_LAG = 5
+VAR_COLUMNS = ["INF", "D_FEDFUNDS", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"]
+VAR_LAG = 4
 VARX_ENDOG = ["INF", "UNRATE", "INDPRO_GROWTH", "M2_GROWTH"]
 VARX_EXOG = ["FEDFUNDS", "SENTIMENT_CHANGE"]
 VARX_LAG = 4
 BASELINE_SPLIT_DATE = pd.Timestamp("2023-04-01").date()
 CRISIS_DUMMY_OPTIONS = ["D_2008", "D_COVID"]
 CHOLESKY_ORDERINGS = {
-    "A_policy_first": ["FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"],
-    "B_slow_macro_first_policy_later": ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE", "FEDFUNDS"],
-    "C_granger_policy_reaction": ["INF", "INDPRO_GROWTH", "UNRATE", "FEDFUNDS", "SENTIMENT_CHANGE"],
+    "A_policy_change_first": ["D_FEDFUNDS", "INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE"],
+    "B_slow_macro_first_policy_change_later": ["INF", "UNRATE", "INDPRO_GROWTH", "SENTIMENT_CHANGE", "D_FEDFUNDS"],
+    "C_granger_policy_reaction": ["INF", "INDPRO_GROWTH", "UNRATE", "D_FEDFUNDS", "SENTIMENT_CHANGE"],
 }
 
 
@@ -157,7 +157,7 @@ def is_baseline_configuration(
 
 
 @st.cache_data
-def load_project_data(cache_version: str = "irf-ci-all-shocks-v1") -> dict[str, pd.DataFrame]:
+def load_project_data(cache_version: str = "fedfunds-baseline-decision-v1") -> dict[str, pd.DataFrame]:
     return load_project_data_uncached()
 
 
@@ -405,6 +405,12 @@ def interactive_model_control_form(key_prefix: str, title: str) -> tuple[ModelRu
         if len(set(endog) & set(exog)):
             st.error("A variable cannot be both endogenous and exogenous.")
             valid_selection = False
+        selected_policy_representations = set(endog) | set(exog)
+        if {"FEDFUNDS", "D_FEDFUNDS"}.issubset(selected_policy_representations):
+            st.warning(
+                "Using both FEDFUNDS and D_FEDFUNDS together may create redundancy and interpretation confusion. "
+                "Prefer one policy representation at a time."
+            )
         if model_type == "VAR" and len(endog) < 2:
             st.error("VAR requires at least two endogenous variables.")
             valid_selection = False
@@ -598,18 +604,18 @@ if page == "Overview":
     )
     st.markdown(
         f"""
-        **Selected VAR:** `VAR_core_plus_sentiment`, endogenous variables
+        **Selected VAR:** `VAR_D_FEDFUNDS_core_sentiment`, endogenous variables
         `{", ".join(VAR_COLUMNS)}`, lag `{VAR_LAG}`, no crisis dummies.
 
-        **Selected VARX:** `VARX_A_policy_sentiment_exog`, endogenous variables
+        **Selected VARX:** `VARX_A_policy_sentiment_exog_level_policy`, endogenous variables
         `{", ".join(VARX_ENDOG)}`, exogenous variables `{", ".join(VARX_EXOG)}`, lag `{VARX_LAG}`, no crisis dummies.
         VARX is treated as a conditional/scenario forecasting model, while VAR remains the main dynamic policy-analysis model.
         """
     )
     st.info(
-        "VAR lag 5 was not chosen directly by AIC/BIC: AIC/FPE preferred lag 3 and BIC/HQIC preferred lag 2. "
-        "Lag 5 was retained because the broader optimization balanced forecast performance, residual ACF behavior, "
-        "stability, and interpretability. For VARX, AIC/FPE preferred lag 4, BIC lag 1, and HQIC lag 3."
+        "FEDFUNDS remains available for sensitivity analysis, but the official VAR baseline now uses D_FEDFUNDS because "
+        "the level series is highly persistent. The official VARX baseline keeps level FEDFUNDS because it forecasts "
+        "substantially better in the conditional scenario model."
     )
     if not data["comparison"].empty:
         st.write("Official VAR/VARX diagnostic comparison")
@@ -717,6 +723,7 @@ elif page == "Stationarity and Data Preparation":
         [
             ["INF", "log(CPI).diff() * 100", "monthly inflation"],
             ["FEDFUNDS", "level", "monetary-policy rate"],
+            ["D_FEDFUNDS", "FEDFUNDS.diff()", "monthly policy-rate change / tightening-easing movement"],
             ["UNRATE", "level", "labor-market slack"],
             ["INDPRO_GROWTH", "log(INDPRO).diff() * 100", "real-activity growth"],
             ["M2_GROWTH", "log(M2).diff() * 100", "money-growth channel"],
@@ -725,6 +732,10 @@ elif page == "Stationarity and Data Preparation":
         columns=["model_variable", "construction", "economic_role"],
     )
     st.dataframe(transformation_table, width="stretch", hide_index=True)
+    st.info(
+        "Because FEDFUNDS is highly persistent and KPSS rejects stationarity, this branch adds D_FEDFUNDS robustness models. "
+        "D_FEDFUNDS represents policy-rate changes, not the policy-rate level."
+    )
     transformed_vars = st.multiselect("Variables in summary plot", list(model_df.columns), default=list(model_df.columns))
     if transformed_vars:
         st.plotly_chart(plot_time_series(model_df, transformed_vars, "Final Modeling Variables"), width="stretch", key="model_series")
@@ -990,9 +1001,9 @@ elif page == "Significance Analysis and Granger Causality":
     st.markdown(
         """
         Granger results help identify predictive channels and can support the economic motivation for the
-        Cholesky ordering. They do not prove structural causality. In the optimized VAR, FEDFUNDS has stronger
-        predictive content for UNRATE and INDPRO_GROWTH than for inflation directly, while inflation predicting
-        FEDFUNDS is consistent with a policy-reaction function.
+        Cholesky ordering. They do not prove structural causality. In the official VAR on this branch,
+        D_FEDFUNDS is the stationary policy-change variable, so predictive links should be interpreted as
+        policy-rate-change dynamics rather than policy-rate-level stance dynamics.
         """
     )
 
@@ -1013,7 +1024,7 @@ elif page == "IRF and FEVD":
         order = CHOLESKY_ORDERINGS[ordering_name]
         st.caption(f"Current ordering: {', '.join(order)}")
         fitted = VAR(model_df[order]).fit(VAR_LAG, trend="c")
-        shock = st.selectbox("Shock variable", order, index=order.index("FEDFUNDS") if "FEDFUNDS" in order else 0)
+        shock = st.selectbox("Shock variable", order, index=order.index("D_FEDFUNDS") if "D_FEDFUNDS" in order else 0)
         show_ci = st.checkbox("Show precomputed 95% confidence intervals when available", value=True)
         st.caption(
             "Confidence intervals are Monte Carlo bands with independent simulation seeds. Under recursive Cholesky "
@@ -1039,8 +1050,8 @@ elif page == "IRF and FEVD":
             key="var_irf_grid",
         )
         st.warning(
-            "FEDFUNDS shock responses are not a clean textbook contractionary policy experiment. If inflation, output, "
-            "or employment improve after a FEDFUNDS shock, interpret this as a price-puzzle/endogenous policy-reaction issue."
+            "A D_FEDFUNDS shock represents an unexpected monthly policy-rate change, not the level of monetary-policy stance. "
+            "Do not read it as a fully exogenous textbook monetary-policy shock without the Cholesky identification caveat."
         )
         st.dataframe(
             test_table(
@@ -1051,7 +1062,7 @@ elif page == "IRF and FEVD":
             hide_index=True,
         )
         if not data["cholesky_robustness"].empty:
-            st.write("Alternative ordering robustness for FEDFUNDS shock")
+            st.write("Alternative ordering robustness from the previous level-FEDFUNDS baseline")
             st.dataframe(
                 test_table(
                     data["cholesky_robustness"],
@@ -1065,7 +1076,7 @@ elif page == "IRF and FEVD":
         fig = px.area(fevd_df.query("response == @fevd_response"), x="horizon", y="variance_share", color="shock", title=f"FEVD for {fevd_response}")
         st.plotly_chart(fig, width="stretch", key="var_fevd")
         if fevd_response == "INF":
-            st.info("Inflation FEVD is dominated by INF own innovations; FEDFUNDS contributes a smaller but nonzero share around 3.8% at 12-24 months in the optimized baseline.")
+            st.info("Inflation FEVD remains dominated by INF own innovations. Under the D_FEDFUNDS VAR, policy-rate-change shocks contribute a smaller but nonzero share.")
     else:
         st.markdown(
             """
@@ -1122,6 +1133,163 @@ elif page == "Robustness":
     if robustness_run is not None:
         st.dataframe(round_numeric(robustness_run.metrics), width="stretch", hide_index=True)
         st.plotly_chart(plot_forecast_run(robustness_run), width="stretch", key="robust_interactive_forecast")
+
+    st.write("FEDFUNDS vs D_FEDFUNDS Baseline Decision")
+    st.markdown(
+        """
+        <div class="note">
+        Level FEDFUNDS measures the policy-rate stance. D_FEDFUNDS measures monthly policy-rate changes.
+        This section decides whether each official baseline should use the policy-rate level or the stationary policy-change variable.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    decision_table = data.get("fedfunds_baseline_decision", pd.DataFrame())
+    if not decision_table.empty:
+        st.write("Official baseline decision")
+        st.dataframe(
+            test_table(
+                decision_table,
+                "baseline selection balances stationarity, stability, diagnostics, forecast performance, parsimony, and interpretation",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+    fed_stationarity = data.get("fedfunds_level_diff_stationarity", data.get("fedfunds_stationarity", pd.DataFrame()))
+    if fed_stationarity.empty:
+        st.info("FEDFUNDS-difference robustness outputs are not available yet. Run `.venv/bin/python src/advanced_macro_var_analysis.py`.")
+    else:
+        st.write("Stationarity comparison")
+        st.dataframe(
+            test_table(
+                fed_stationarity,
+                "ADF p-value < 0.05 and KPSS p-value > 0.05 support stationarity; lower ACF(1) means less persistence",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        stationarity_plot = fed_stationarity[["variable", "acf_lag1"]].copy()
+        fig = px.bar(stationarity_plot, x="variable", y="acf_lag1", title="FEDFUNDS Persistence: Level vs Monthly Change")
+        fig.add_hline(y=0, line_dash="dash", line_color="gray")
+        st.plotly_chart(fig, width="stretch", key="fedfunds_stationarity_acf")
+
+    fed_model_choice = st.radio("Level-vs-difference model family", ["VAR", "VARX"], horizontal=True)
+    comparison_key = "fedfunds_level_diff_var" if fed_model_choice == "VAR" else "fedfunds_level_diff_varx"
+    fallback_comparison_key = "var_fedfunds_level_diff" if fed_model_choice == "VAR" else "varx_fedfunds_level_diff"
+    metrics_key = "d_fedfunds_var_metrics" if fed_model_choice == "VAR" else "d_fedfunds_varx_metrics"
+    fallback_metrics_key = "var_diff_metrics" if fed_model_choice == "VAR" else "varx_diff_metrics"
+    diagnostics_key = "var_diff_diagnostics" if fed_model_choice == "VAR" else "varx_diff_diagnostics"
+    comparison_table = data.get(comparison_key, pd.DataFrame())
+    if comparison_table.empty:
+        comparison_table = data.get(fallback_comparison_key, pd.DataFrame())
+    diff_metrics = data.get(metrics_key, pd.DataFrame())
+    if diff_metrics.empty:
+        diff_metrics = data.get(fallback_metrics_key, pd.DataFrame())
+    diff_diagnostics = data.get(diagnostics_key, pd.DataFrame())
+    if not comparison_table.empty:
+        st.write(f"{fed_model_choice}: level FEDFUNDS vs D_FEDFUNDS candidate")
+        st.dataframe(
+            test_table(
+                comparison_table,
+                "D_FEDFUNDS should improve stationarity without materially worsening forecast and diagnostic quality",
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        plot_df = comparison_table.melt(
+            id_vars=["model"],
+            value_vars=[col for col in ["inflation_RMSE", "mean_RMSE", "acf_exceedance_share"] if col in comparison_table.columns],
+            var_name="metric",
+            value_name="value",
+        )
+        fig = px.bar(plot_df, x="model", y="value", color="metric", barmode="group", title=f"{fed_model_choice}: Level vs D_FEDFUNDS Comparison")
+        st.plotly_chart(fig, width="stretch", key=f"{fed_model_choice}_fedfunds_diff_comparison")
+    if not diff_metrics.empty:
+        st.write(f"{fed_model_choice}: D_FEDFUNDS candidate search")
+        display_cols = [
+            "candidate",
+            "lag_order",
+            "selected_diff_robustness_model",
+            "aic_best_lag",
+            "bic_best_lag",
+            "hqic_best_lag",
+            "fpe_best_lag",
+            "inflation_RMSE",
+            "mean_RMSE",
+            "stable",
+            "portmanteau_p_value",
+            "acf_exceedance_share",
+            "selection_score",
+        ]
+        st.dataframe(
+            round_numeric(diff_metrics[[c for c in display_cols if c in diff_metrics.columns]].head(16)),
+            width="stretch",
+            hide_index=True,
+        )
+    if not diff_diagnostics.empty:
+        st.write(f"{fed_model_choice}: selected D_FEDFUNDS residual diagnostics")
+        selected_candidate = diff_metrics.loc[
+            diff_metrics["selected_diff_robustness_model"].astype(str).str.lower().eq("true"),
+            "candidate",
+        ].iloc[0] if not diff_metrics.empty and "selected_diff_robustness_model" in diff_metrics else None
+        selected_lag = int(diff_metrics.loc[
+            diff_metrics["selected_diff_robustness_model"].astype(str).str.lower().eq("true"),
+            "lag_order",
+        ].iloc[0]) if selected_candidate is not None else None
+        selected_diag = diff_diagnostics.copy()
+        if selected_candidate is not None:
+            selected_diag = selected_diag.loc[
+                (selected_diag["candidate"] == selected_candidate)
+                & (pd.to_numeric(selected_diag["lag_order"], errors="coerce") == selected_lag)
+            ]
+        eq_diag = selected_diag.loc[selected_diag["diagnostic_type"] == "equation_residual"].copy()
+        ccf_diag = selected_diag.loc[selected_diag["diagnostic_type"] == "lagged_cross_correlation"].copy()
+        if not eq_diag.empty:
+            st.dataframe(
+                test_table(
+                    eq_diag,
+                    "Ljung-Box/JB/ARCH p-values > 0.05 are preferred; positive-lag ACF exceedances should be limited",
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+        if not ccf_diag.empty:
+            st.write("Largest lagged residual cross-correlations")
+            st.dataframe(
+                round_numeric(ccf_diag.sort_values("max_abs_ccf", ascending=False).head(12)),
+                width="stretch",
+                hide_index=True,
+            )
+
+    if fed_model_choice == "VAR" and not data.get("var_diff_granger", pd.DataFrame()).empty:
+        st.write("D_FEDFUNDS VAR Granger causality")
+        st.dataframe(
+            test_table(data["var_diff_granger"], "p-value < 0.05 indicates predictive causality, not structural causality"),
+            width="stretch",
+            hide_index=True,
+        )
+        st.plotly_chart(plot_granger_heatmap(data["var_diff_granger"]), width="stretch", key="var_diff_granger_heatmap")
+    if fed_model_choice == "VAR" and not data.get("var_diff_irf", pd.DataFrame()).empty:
+        st.write("D_FEDFUNDS VAR IRF and FEVD robustness")
+        st.plotly_chart(
+            plot_response_grid(data["var_diff_irf"], "D_FEDFUNDS", "D_FEDFUNDS VAR: Responses to Policy-Rate-Change Shock"),
+            width="stretch",
+            key="var_diff_irf_grid",
+        )
+        if not data.get("var_diff_fevd", pd.DataFrame()).empty:
+            st.dataframe(
+                test_table(data["var_diff_fevd"], "larger variance shares imply larger contribution to forecast-error variance"),
+                width="stretch",
+                hide_index=True,
+            )
+    if fed_model_choice == "VARX" and not data.get("varx_diff_scenario", pd.DataFrame()).empty:
+        st.write("D_FEDFUNDS VARX conditional scenario response")
+        st.info("This is a conditional scenario response to an externally supplied D_FEDFUNDS path, not a structural VAR IRF.")
+        st.plotly_chart(
+            plot_response_grid(data["varx_diff_scenario"], "D_FEDFUNDS", "VARX Scenario Response to D_FEDFUNDS Shock"),
+            width="stretch",
+            key="varx_diff_scenario_grid",
+        )
 
     st.write("Restricted Models / Parsimony Check")
     st.markdown(
@@ -1273,6 +1441,7 @@ elif page == "Code quality":
             ["src/forecasting.py", "forecast metrics, ML helpers, official VAR/VARX forecast comparison"],
             ["src/model_optimization.py", "controlled VAR/VARX specification search and context-file generation"],
             ["src/restricted_models.py", "restricted VAR/VARX parsimony robustness checks"],
+            ["src/fedfunds_diff_robustness.py", "FEDFUNDS level-vs-change stationarity robustness outputs"],
             ["src/visualization.py", "Plotly figure builders"],
             ["src/advanced_macro_var_analysis.py", "reproducible academic pipeline and output generation"],
         ],

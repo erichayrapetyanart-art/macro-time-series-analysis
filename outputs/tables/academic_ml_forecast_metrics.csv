@@ -1,5 +1,5 @@
 model,Acceptable if,target,forecast_design,rmse,mae,directional_accuracy
-Ridge Regression,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.15947831724290856,0.11680537522069237,0.6111111111111112
+Ridge Regression,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.15845680242865653,0.11842592595541203,0.5833333333333334
+Gradient Boosting,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.1712261745902064,0.11968702110272142,0.6944444444444444
 Random Walk (one-step),Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.17391206179548394,0.13200847549357736,
-Random Forest,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.1794147451543263,0.13033343253923316,0.6666666666666666
-Gradient Boosting,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.18358322154677295,0.13899016792093527,0.6111111111111112
+Random Forest,Lower RMSE/MAE is better; higher directional accuracy is better,INF,one_step_lagged_features_final_36_months,0.17873093419791178,0.12952757759237415,0.6666666666666666

@@ -1,0 +1,21 @@
+test,Acceptable if,source,target,p_value,test_statistic,significant_at_5pct
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",D_FEDFUNDS,INF,0.02478554104187634,2.7990602817166024,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",UNRATE,INF,0.40731296521394045,0.9982208632920464,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INDPRO_GROWTH,INF,0.15613150017285615,1.662658621714616,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",SENTIMENT_CHANGE,INF,0.3964606989281465,1.018462210748606,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INF,D_FEDFUNDS,0.06881981763139816,2.181722582958233,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",UNRATE,D_FEDFUNDS,0.021251386438546436,2.8901387722582195,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INDPRO_GROWTH,D_FEDFUNDS,0.115666991318602,1.856119070791292,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",SENTIMENT_CHANGE,D_FEDFUNDS,0.5301493552517204,0.7922416767724103,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INF,UNRATE,0.5716255952087018,0.7297351306399662,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",D_FEDFUNDS,UNRATE,3.2800833606347966e-10,12.744528037424049,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INDPRO_GROWTH,UNRATE,9.60509663327895e-06,7.200588082149181,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",SENTIMENT_CHANGE,UNRATE,0.22044270364974514,1.4335796227490394,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INF,INDPRO_GROWTH,0.014801342471156467,3.1027520651037044,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",D_FEDFUNDS,INDPRO_GROWTH,0.00015172171138852101,5.688907849818545,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",UNRATE,INDPRO_GROWTH,4.41566431555418e-07,8.86996580470787,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",SENTIMENT_CHANGE,INDPRO_GROWTH,0.11887304773418295,1.8386717091410876,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INF,SENTIMENT_CHANGE,0.013479752010678685,3.1574099350779488,True
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",D_FEDFUNDS,SENTIMENT_CHANGE,0.18897252505279336,1.5368899552466257,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",UNRATE,SENTIMENT_CHANGE,0.6434552558061306,0.6267499016279553,False
+VAR block Granger causality F-test,"p-value < 0.05 indicates predictive causality, not structural causality",INDPRO_GROWTH,SENTIMENT_CHANGE,0.45849255311537673,0.9077952724233288,False

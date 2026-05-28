@@ -1,6 +1,6 @@
 test,Acceptable if,equation,jarque_bera_stat,jarque_bera_p_value,skewness,kurtosis_pearson,reject_normality_at_5pct,multivariate_normality_stat,multivariate_normality_p_value,multivariate_normality_method
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INF,235.01204234579126,9.285032200343683e-52,-0.30048691681174244,6.921662485801775,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,UNRATE,407654.49959748733,0.0,10.427875003899112,166.26636135997245,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INDPRO_GROWTH,30945.830335307277,0.0,-4.2431001184673685,47.551206813636746,True,,,
-Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,M2_GROWTH,4731.069472426674,0.0,1.9050133946012884,20.32664221222151,True,,,
-Multivariate residual normality,system normality p-value > 0.05 is preferred; rejection is common during crisis periods,SYSTEM,,,,,True,359435.13476047677,0.0,statsmodels VAR normality test
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INF,238.72937119106174,1.4473571528317011e-52,-0.30430534591495173,6.95197136435387,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,UNRATE,416827.0568421988,0.0,10.527346780336655,168.09724674475314,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,INDPRO_GROWTH,33557.806810975155,0.0,-4.383167763577593,49.40629750320644,True,,,
+Jarque-Bera residual normality,Jarque-Bera p-value > 0.05 is preferred for approximately normal residuals,M2_GROWTH,5273.456656716868,0.0,2.046066830581681,21.276221770134484,True,,,
+Multivariate residual normality,system normality p-value > 0.05 is preferred; rejection is common during crisis periods,SYSTEM,,,,,True,382466.5093548193,0.0,statsmodels VAR normality test

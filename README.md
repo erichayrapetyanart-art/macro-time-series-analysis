@@ -1,6 +1,13 @@
 # U.S. Macroeconomic Time Series Analysis
 
-Academic course project using monthly Federal Reserve Economic Data (FRED) series from January 1995 onward.
+## Current Official Baseline Update
+
+This note supersedes earlier level-FEDFUNDS baseline references in older optimization tables in this file. Those older tables are retained as historical comparison output, but the official baseline after the FEDFUNDS-vs-D_FEDFUNDS experiment is:
+
+- VAR baseline: `VAR_D_FEDFUNDS_candidate`, endogenous variables `INF, D_FEDFUNDS, UNRATE, INDPRO_GROWTH, SENTIMENT_CHANGE`, lag 4, policy representation `D_FEDFUNDS`.
+- VARX baseline: `VARX_level_FEDFUNDS_baseline`, endogenous variables `INF, UNRATE, INDPRO_GROWTH, M2_GROWTH`, exogenous variables `FEDFUNDS, SENTIMENT_CHANGE`, lag 4, policy representation `FEDFUNDS`.
+
+Interpretation rule: `FEDFUNDS` is the policy-rate level / policy stance; `D_FEDFUNDS` is the monthly policy-rate change / tightening-easing movement. They should not both be treated as the official policy variable in the same baseline model.
 
 ## Research Question
 
@@ -186,3 +193,36 @@ Key generated academic outputs include:
 ## Note About API Keys
 
 Do not hard-code your real FRED API key in a submitted project or public repository. This project reads it from the `FRED_API_KEY` environment variable.
+
+## FEDFUNDS vs D_FEDFUNDS Baseline Decision
+
+This branch compares level `FEDFUNDS` against `D_FEDFUNDS = FEDFUNDS.diff()` as the policy variable. Level `FEDFUNDS` measures policy stance; `D_FEDFUNDS` measures monthly tightening/easing movements. The dashboard keeps both variables available, but the official baseline uses only one policy representation within each model.
+
+### Stationarity evidence
+
+- Level `FEDFUNDS`: ADF p-value = 0.02881, KPSS p-value = 0.01, ACF(1) = 0.9936.
+- `D_FEDFUNDS`: ADF p-value = 0.00147, KPSS p-value = 0.1, ACF(1) = 0.6551.
+- Conclusion: `D_FEDFUNDS` is more stationary and much less persistent than level `FEDFUNDS`.
+
+### VAR baseline decision
+
+- Level-FEDFUNDS baseline: lag 5, inflation RMSE = 0.1760, mean RMSE = 1.1291, min Ljung-Box p = 0.1852, Portmanteau p = 1.085e-05, ACF exceedance share = 0.050, stable = yes.
+- D_FEDFUNDS candidate: lag 4, inflation RMSE = 0.1770, mean RMSE = 1.0780, min Ljung-Box p = 0.2636, Portmanteau p = 1.217e-06, ACF exceedance share = 0.067, stable = yes.
+- Official VAR baseline: `D_FEDFUNDS`, lag 4. Switch official VAR baseline to D_FEDFUNDS because stationarity validity improves and forecast loss is negligible.
+
+### VARX baseline decision
+
+- Level-FEDFUNDS VARX baseline: lag 4, inflation RMSE = 0.1920, mean RMSE = 0.5087, min Ljung-Box p = 0.0614, ACF exceedance share = 0.062, stable = yes.
+- D_FEDFUNDS VARX candidate: lag 5, inflation RMSE = 0.2284, mean RMSE = 0.7753, min Ljung-Box p = 0.3829, ACF exceedance share = 0.052, stable = yes.
+- Official VARX baseline: `FEDFUNDS`, lag 4. Keep official VARX baseline with level FEDFUNDS for conditional policy-stance scenario forecasting; report D_FEDFUNDS VARX as robustness.
+
+### Granger, IRF, FEVD, and scenario conclusions
+
+- Selected D_FEDFUNDS VAR Granger relationships: D_FEDFUNDS->INF (p=0.0248), UNRATE->D_FEDFUNDS (p=0.0213), D_FEDFUNDS->UNRATE (p=3.28e-10), INDPRO_GROWTH->UNRATE (p=9.61e-06), INF->INDPRO_GROWTH (p=0.0148), D_FEDFUNDS->INDPRO_GROWTH (p=0.000152), UNRATE->INDPRO_GROWTH (p=4.42e-07), INF->SENTIMENT_CHANGE (p=0.0135).
+- Response of inflation to a D_FEDFUNDS shock: h1=0.0428, h6=0.0023, h12=0.0003, h24=0.0013. This is a response to an unexpected policy-rate change, not a policy-rate-level stance shock.
+- D_FEDFUNDS contribution to INF FEVD: h12=0.040, h24=0.040.
+- VARX conditional inflation scenario response to a D_FEDFUNDS exogenous shock: h1=0.3918, h6=-0.0227, h12=-0.0111, h24=-0.0015. VARX responses are conditional scenario responses, not structural IRFs.
+
+### Final answer
+
+`D_FEDFUNDS` is more stationary. The official VAR baseline switches to `D_FEDFUNDS` because the inflation forecast loss is negligible and stationarity validity improves. The official VARX baseline keeps level `FEDFUNDS` because conditional forecast performance is materially better with the policy-rate level. The alternative representation remains available as a sensitivity-analysis variable in the dashboard.

@@ -1,7 +1,6 @@
 equation,Acceptable if,total_parameters,significant_at_5pct,min_p_value,share_significant_at_5pct
-FEDFUNDS,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",27,9,3.7811861146815074e-146,0.3333333333333333
-INDPRO_GROWTH,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",27,8,1.2772262312589115e-06,0.2962962962962963
-INF,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",27,10,1.8786309066464166e-17,0.37037037037037035
-M2_GROWTH,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",27,10,6.372459811141927e-11,0.37037037037037035
-SENTIMENT_CHANGE,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",27,4,1.7972864878355355e-05,0.14814814814814814
-UNRATE,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",27,11,1.496370895346592e-14,0.4074074074074074
+D_FEDFUNDS,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",21,4,1.4667714059492497e-22,0.19047619047619047
+INDPRO_GROWTH,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",21,9,6.83644302272921e-06,0.42857142857142855
+INF,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",21,6,1.1638779543683736e-20,0.2857142857142857
+SENTIMENT_CHANGE,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",21,4,1.0269742608598318e-05,0.19047619047619047
+UNRATE,"Higher share of significant coefficients is informative, but VAR interpretation should rely mainly on system diagnostics, IRF, FEVD, and forecasts",21,5,1.0614152743362983e-18,0.23809523809523808

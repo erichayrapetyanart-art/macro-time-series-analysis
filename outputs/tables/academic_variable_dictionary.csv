@@ -2,6 +2,7 @@ variable,fred_id,economic_role,expected_use
 CPI,CPIAUCSL,Price level used to construct inflation.,Target transformation
 UNRATE,UNRATE,Labor market slack and cyclical pressure.,Endogenous macro state
 FEDFUNDS,FEDFUNDS,Monetary-policy stance and short-term interest rate.,"Endogenous in VAR, exogenous in VARX"
+D_FEDFUNDS,FEDFUNDS,"Monthly policy-rate change, used as a stationarity robustness treatment.",Robustness alternative to level FEDFUNDS
 INDPRO,INDPRO,Real production and business-cycle activity.,Growth transformation
 M2,M2SL,Broad money supply and liquidity conditions.,Growth transformation
 UMCSENT,UMCSENT,Household expectations and confidence channel.,Change transformation
